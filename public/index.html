@@ -1,0 +1,4081 @@
+<!doctype html>
+<!-- Kanban Board v1.0.0. Built by build.js from the source files: edit those, not this file. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kanban Board</title>
+  <script>
+    // Applies a stored Light/Dark choice before first paint. "System" (or any other value) follows the OS.
+    (function () {
+      try {
+        var t = localStorage.getItem("kanban-board.theme");
+        if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+      } catch (e) { /* storage blocked: follow the OS */ }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <!-- Loaded without blocking first paint; the system font stack is used until Inter arrives. -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" media="print" onload="this.media='all'">
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap"></noscript>
+  <style>
+/* Tokens: DESIGN.md palette. Each token holds its light and dark value via light-dark(), which follows
+   color-scheme: the OS by default, or the user's Light/Dark choice (data-theme on <html>). */
+:root {
+  color-scheme: light dark;
+  --bg: light-dark(#f7f7f4, #15140f);
+  --surface: light-dark(#ffffff, #211f1a);
+  --surface-soft: light-dark(#fafaf7, #1b1a15);
+  --column: light-dark(#efeee8, #1d1c17);
+  --text: light-dark(#26251e, #f7f7f4);
+  --body: light-dark(#5a5852, #cfcdc4);
+  /* Small secondary text. Darker than DESIGN.md's #807d72 so 12–13px text meets WCAG AA (4.5:1) on cards and columns. */
+  --muted: light-dark(#6b6960, #a09c92);
+  --border: light-dark(#e6e5e0, #35332b);
+  --border-strong: light-dark(#cfcdc4, #4d4a41);
+  --hover: light-dark(#efeee8, #26241e);
+  /* Brand orange (#f54e00) is kept for non-text marks: logo, focus ring, drop target, priority flags.
+     Buttons and links use a deeper orange so white or orange text passes 4.5:1. */
+  --brand: #f54e00;
+  --primary: #c73e00;
+  --primary-hover: #a83400;
+  --on-primary: #ffffff;
+  --link: light-dark(#c73e00, #ff8a50);
+  --danger: light-dark(#cf2d56, #f0708a);
+  --warning: light-dark(#a15c00, #f0b44c);
+  --success: light-dark(#1f8a65, #4cc296);
+  --focus: var(--brand);
+  --toast-bg: light-dark(#26251e, #f7f7f4);
+  --toast-text: light-dark(#f7f7f4, #26251e);
+  --scrim: light-dark(rgba(38, 37, 30, 0.45), rgba(0, 0, 0, 0.6));
+  --radius: 12px;
+  --radius-sm: 8px;
+}
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+
+* { box-sizing: border-box; }
+
+/* The page fills the window: the top bar takes what it needs (it may wrap), the board gets the rest. */
+html, body { height: 100%; }
+body {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+  background: var(--bg);
+  color: var(--text);
+}
+
+h1, h2, h3, strong { font-weight: 600; }
+
+button, input, select, textarea { font: inherit; color: var(--text); }
+
+input, select, textarea {
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+[aria-invalid="true"] { border-color: var(--danger); }
+
+input:focus, select:focus, textarea:focus, button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+button:hover { background: var(--hover); }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+button[hidden] { display: none; }
+button.primary { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+button.primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+button.danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
+button.danger:hover { background: color-mix(in srgb, var(--danger) 8%, transparent); }
+
+a { color: var(--link); }
+
+.hidden { display: none !important; }
+.spacer { flex: 1; }
+.hint { color: var(--muted); margin: 0; font-size: 13px; }
+.empty { color: var(--muted); font-size: 13px; margin: 4px 6px; }
+.bad-url { color: var(--danger); }
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Icons (symbols live in the sprite at the top of index.html) */
+.icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vertical-align: middle;
+}
+.icon-sm { width: 13px; height: 13px; }
+.logo { width: 22px; height: 22px; color: var(--brand); }
+
+/* Text input or select with an icon at its left edge */
+.input-icon { position: relative; display: inline-flex; align-items: center; }
+.input-icon > .icon {
+  position: absolute;
+  left: 10px;
+  color: var(--muted);
+  pointer-events: none;
+}
+.input-icon > input, .input-icon > select { padding-left: 32px; }
+
+/* Top bar */
+.topbar {
+  flex: none;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+/* Project name (click to rename), project switcher, and New project */
+.project-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.project-title { margin: 0; font-size: 18px; font-weight: 400; min-width: 0; }
+.project-name {
+  max-width: min(40vw, 420px);
+  padding: 4px 8px;
+  margin-left: -4px;
+  border-color: transparent;
+  background: none;
+  font-size: 18px;
+  font-weight: 400;
+}
+.project-name > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-name:hover { background: var(--hover); border-color: var(--border); }
+.rename-hint { color: var(--muted); opacity: 0; transition: opacity 0.15s; }
+.project-name:hover .rename-hint, .project-name:focus-visible .rename-hint { opacity: 1; }
+.project-name-input { width: min(40vw, 320px); font-size: 18px; padding: 3px 8px; }
+
+.menu-panel-left { left: 0; right: auto; }
+.menu-heading { margin: 4px 10px 6px; font-size: 12px; font-weight: 600; color: var(--muted); }
+#projects-panel { width: min(300px, calc(100vw - 32px)); }
+.projects-list { display: flex; flex-direction: column; gap: 2px; max-height: 60vh; overflow-y: auto; }
+.projects-list .pl-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.projects-list .pl-count { font-size: 12px; color: var(--muted); }
+.projects-list [aria-current="true"] { font-weight: 600; }
+.projects-list [aria-current="true"] .icon { color: var(--brand); }
+.projects-list .pl-manage { margin-top: 4px; border-top: 1px solid var(--border); border-radius: 0 0 var(--radius-sm) var(--radius-sm); color: var(--muted); }
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.search-wrap { width: 220px; }
+#search { width: 100%; }
+
+/* Board and columns */
+main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* Shown on a fresh start: one empty project and no workers yet */
+.welcome {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 16px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 13px;
+}
+.welcome[hidden] { display: none; }
+.welcome .icon { flex: none; color: var(--muted); }
+.welcome p { flex: 1; margin: 0; }
+.welcome button { flex: none; }
+@media (max-width: 560px) {
+  .welcome { flex-wrap: wrap; }
+  .welcome p { flex-basis: calc(100% - 30px); }
+}
+
+.board-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.board {
+  position: relative;
+  z-index: 1;   /* above the background layer */
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 18px 20px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x proximity;
+  scroll-padding-inline: 20px;
+}
+
+/* Fades at the edges when more columns are off-screen */
+.board-wrap::before,
+.board-wrap::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 56px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 2;
+}
+.board-wrap::before { left: 0; background: linear-gradient(to left, transparent, var(--bg)); }
+.board-wrap::after { right: 0; background: linear-gradient(to right, transparent, var(--bg)); }
+.board-wrap.has-more-left::before,
+.board-wrap.has-more-right::after { opacity: 1; }
+
+/* Small round scroll buttons inside the fades, centered on the board area (not the window) */
+.board-more {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 3;
+  display: none;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+}
+.board-more:hover { background: var(--hover); }
+.board-more-right { right: 10px; }
+.board-more-left { left: 10px; }
+.board-wrap.has-more-right .board-more-right,
+.board-wrap.has-more-left .board-more-left { display: inline-flex; }
+
+.column {
+  flex: 0 0 290px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  max-height: 100%;
+  background: var(--column);
+  border-radius: var(--radius);
+  scroll-snap-align: start;
+}
+.column.drop-target {
+  background: color-mix(in srgb, var(--brand) 12%, var(--column));
+  outline: 2px dashed var(--brand);
+  outline-offset: -4px;
+}
+
+.column-head { display: flex; align-items: center; gap: 8px; padding: 4px 6px; }
+.column-head h2 { margin: 0; font-size: 14px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.swatch { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.count {
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.done-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 18%, transparent);
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+
+.column-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 40px;
+  overflow-y: auto;
+  padding: 2px 2px 2px 0;   /* room for the card focus ring */
+}
+
+.add-in-column {
+  width: 100%;
+  justify-content: center;
+  background: transparent;
+  border: 1px dashed var(--border-strong);
+  color: var(--muted);
+}
+
+/* Where a dragged card will land */
+.drop-indicator {
+  flex: none;
+  height: 3px;
+  margin: -2px 4px;
+  border-radius: 2px;
+  background: var(--brand);
+}
+
+/* Cards */
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: grab;
+}
+.card:hover { border-color: var(--border-strong); }
+.card.dragging { opacity: 0.5; }
+.card:has(.card-open:focus-visible) { outline: 2px solid var(--focus); outline-offset: 1px; }
+.card h3 { margin: 0; font-size: 14px; font-weight: 600; }
+
+/* The title is the card's button: it carries the accessible name and keyboard focus. */
+.card-open {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-weight: 600;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: inherit;
+}
+.card-open:hover { background: none; }
+.card-open:focus-visible { outline: none; }   /* the whole card shows the ring instead */
+
+.card-meta, .card-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.card-meta > span, .card-foot > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.due.soon { color: var(--warning); font-weight: 600; }
+.due.overdue { color: var(--danger); font-weight: 600; }
+
+/* Cards in a completed column recede a little */
+.card.is-done { background: var(--surface-soft); }
+.card.is-done .card-open { color: var(--body); font-weight: 400; }
+.done-mark { color: var(--success); margin-right: 4px; vertical-align: -1px; }
+
+/* Move buttons for touch screens, where drag and drop does not work */
+.card-move { display: none; }
+@media (pointer: coarse) {
+  .card-move { display: flex; justify-content: flex-end; gap: 6px; }
+  .card-move .icon-btn { min-width: 36px; min-height: 32px; }
+}
+
+.priority {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: var(--text);
+}
+/* Tag text stays at full text contrast; the hue sits in the background and the icon. */
+.p-high     { background: color-mix(in srgb, var(--brand) 18%, var(--surface)); }
+.p-critical { background: color-mix(in srgb, var(--danger) 22%, var(--surface)); }
+.p-high .icon     { color: var(--brand); }
+.p-critical .icon { color: var(--danger); }
+
+/* Dialogs */
+dialog {
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: none;
+}
+dialog.small { width: min(480px, calc(100vw - 32px)); }
+dialog.wide { width: min(960px, calc(100vw - 32px)); }
+
+/* Task editor: the fields on the left, attachments and comments in a side pane. The side pane does not add
+   to the dialog's height (contain: size); it takes the height of the fields and its lists scroll inside it. */
+.dialog-body.task-body {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 0;
+  padding: 0;
+  /* Taller when the window allows (the description grows), never taller than the window. */
+  min-height: min(540px, calc(100dvh - 172px));
+}
+.task-main { display: flex; flex-direction: column; gap: 14px; padding: 16px 18px; }
+.task-main .grow { flex: 1; }
+.task-main .grow textarea { flex: 1; min-height: 96px; }
+.task-side {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-height: 0;
+  padding: 16px 18px;
+  border-left: 1px solid var(--border);
+  background: var(--surface-soft);
+  contain: size;
+  overflow: hidden;
+}
+.side-section { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.side-title { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; font-weight: 600; }
+.side-title .icon { color: var(--muted); }
+.side-list { scrollbar-width: thin; }
+.side-attachments .side-list { max-height: 100px; overflow-y: auto; }
+.side-comments { flex: 1; }
+.side-comments .side-list { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
+.task-side .comment { background: var(--surface); border: 1px solid var(--border); }
+.task-side .comment-add { flex-direction: column; }
+.task-side .comment-add button { align-self: flex-end; }
+@media (max-width: 760px) {
+  .dialog-body.task-body { grid-template-columns: minmax(0, 1fr); }
+  .task-side { contain: none; overflow: visible; border-left: 0; border-top: 1px solid var(--border); }
+  .side-attachments .side-list, .side-comments .side-list { max-height: none; overflow: visible; }
+}
+dialog::backdrop { background: var(--scrim); }
+
+/* 2px less than the dialog: its 1px border sits outside the form. */
+.dialog-form { display: flex; flex-direction: column; max-height: calc(100dvh - 50px); }
+.dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.dialog-head h2 { margin: 0; font-size: 17px; font-weight: 400; }
+.dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 18px;
+  overflow-y: auto;
+}
+.dialog-body > p { margin: 0; }
+.dialog-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-soft);
+}
+.dialog-foot button { white-space: nowrap; }
+
+/* Icon-only buttons: at least 28px so they meet the WCAG 2.2 24px target size with room to spare. */
+.icon-btn {
+  justify-content: center;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 4px;
+}
+.req { color: var(--danger); }
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-weight: 600;
+  font-size: 13px;
+}
+label input, label select, label textarea { font-weight: 400; }
+textarea { resize: vertical; }
+
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field-error { margin: 0; color: var(--danger); font-size: 13px; }
+.field-error:empty { display: none; }
+
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+/* On narrow screens the project buttons show only their icons. */
+@media (max-width: 720px) {
+  .project-bar .btn-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  #btn-projects, #btn-new-project { min-height: 34px; }
+}
+@media (max-width: 560px) {
+  .grid-2 { grid-template-columns: 1fr; }
+  .search-wrap { width: 100%; }
+  .topbar { padding: 12px 16px; }
+  .board { padding: 16px; scroll-padding-inline: 16px; }
+  .column { flex-basis: min(290px, calc(100vw - 48px)); }
+}
+
+fieldset.list-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+legend { display: flex; align-items: center; gap: 6px; padding: 0 4px; font-weight: 600; }
+
+/* Typable dropdown ("Assigned to") */
+.combo-field { gap: 5px; }
+.combo-field > label { font-weight: 600; font-size: 13px; }
+.combo { position: relative; }
+.combo > input { width: 100%; padding-right: 36px; }
+.combo-toggle {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  bottom: 1px;
+  width: 34px;
+  padding: 0;
+  justify-content: center;
+  border: 0;
+  border-radius: 0 calc(var(--radius-sm) - 1px) calc(var(--radius-sm) - 1px) 0;
+  background: transparent;
+  color: var(--muted);
+}
+.combo-toggle:hover { background: var(--surface-soft); color: var(--text); }
+.combo-toggle .icon { transition: transform .15s; }
+.combo-toggle[aria-expanded="true"] .icon { transform: rotate(180deg); }
+.combo-list {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / .14);
+}
+.combo-list[hidden] { display: none; }
+.combo-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.combo-option .icon { flex: none; width: 15px; height: 15px; }
+.combo-option .combo-check { margin-left: auto; color: var(--brand); }
+.combo-option[aria-selected="true"] { font-weight: 600; }
+.combo-option.active, .combo-option:hover { background: var(--surface-soft); }
+.combo-option.combo-new { color: var(--muted); }
+.combo-empty { padding: 7px 8px; color: var(--muted); font-size: 13px; }
+@media (prefers-reduced-motion: reduce) { .combo-toggle .icon { transition: none; } }
+
+.list { display: flex; flex-direction: column; gap: 6px; }
+.list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  word-break: break-all;
+}
+
+.inline-add, .comment-add { display: flex; gap: 8px; }
+.inline-add input { flex: 1; min-width: 0; }
+.comment-add textarea { flex: 1; min-width: 0; }
+.comment-add button, .inline-add button { align-self: flex-start; }
+
+.comment { padding: 8px 10px; background: var(--surface-soft); border-radius: var(--radius-sm); }
+.comment p { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.comment-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--muted);
+}
+.link-btn {
+  min-height: 24px;
+  padding: 0 4px;
+  border: none;
+  background: none;
+  color: var(--danger);
+  font-size: 12px;
+}
+.link-btn:hover { background: none; text-decoration: underline; }
+
+/* Status manager rows */
+.status-list { display: flex; flex-direction: column; gap: 8px; }
+.status-row {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto auto auto auto auto;
+  align-items: center;
+  gap: 6px;
+}
+.s-color { width: 36px; height: 34px; padding: 2px; }
+.s-done {
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+.s-count { font-size: 12px; color: var(--muted); white-space: nowrap; }
+
+/* Rows in Manage projects / Manage workers: name, count, delete */
+.edit-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Checkbox + text rows (import list, backup option) */
+.check-list { display: flex; flex-direction: column; gap: 8px; max-height: 40vh; overflow-y: auto; }
+.check-row {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 8px;
+  font-weight: 400;
+  font-size: 14px;
+}
+.check-row input { margin: 3px 0 0; padding: 0; }
+.check-text { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+.check-text .hint { font-size: 12px; }
+.field-hint { font-weight: 400; font-size: 12px; }
+.text-danger { color: var(--danger); }
+@media (max-width: 560px) {
+  .status-row { grid-template-columns: 36px minmax(0, 1fr) auto auto auto; }
+  .s-done, .s-count { grid-column: 2 / -1; }
+}
+
+/* Keyboard shortcut list */
+.shortcuts {
+  display: grid;
+  grid-template-columns: 112px 1fr;   /* same in every group, so the descriptions line up */
+  gap: 10px 16px;
+  margin: 0;
+  align-items: baseline;
+}
+.shortcuts dt { white-space: nowrap; color: var(--muted); }
+.shortcut-group { display: flex; flex-direction: column; gap: 8px; }
+.shortcut-group h3 { margin: 0; font-size: 13px; font-weight: 600; color: var(--muted); }
+.shortcut-group + .shortcut-group { padding-top: 12px; border-top: 1px solid var(--border); }
+.menu-kbd { margin-left: auto; min-width: 0; font-size: 11px; color: var(--muted); }
+.shortcuts dd { margin: 0; }
+kbd {
+  display: inline-block;
+  min-width: 22px;
+  padding: 1px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: var(--surface-soft);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+  text-align: center;
+}
+
+/* Toast */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 20px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  transform: translate(-50%, 12px);
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 10px 16px;
+  border-radius: var(--radius);
+  background: var(--toast-bg);
+  color: var(--toast-text);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s, transform 0.2s;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+.toast.show.has-action { pointer-events: auto; }
+.toast.error {
+  background: color-mix(in srgb, var(--danger) 16%, var(--surface));
+  color: var(--text);
+  border: 1px solid var(--danger);
+}
+.toast-action {
+  flex: none;
+  padding: 4px 10px;
+  background: transparent;
+  border-color: currentColor;
+  color: inherit;
+  font-weight: 600;
+}
+.toast-action:hover { background: color-mix(in srgb, currentColor 14%, transparent); }
+
+/* Menu (a disclosure panel under the burger button) */
+.menu { position: relative; }
+.menu-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 8px;
+}
+.menu-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 210px;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: none;
+}
+.menu-panel button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  border: none;
+  background: none;
+  padding: 8px 10px;
+}
+.menu-panel button:hover { background: var(--hover); }
+.menu-select {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  font-weight: 400;
+}
+.menu-select select { padding: 4px 8px; }
+.menu-version {
+  margin: 4px 0 0;
+  padding: 8px 10px 2px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A warning inside a dialog, such as a file saved by a different app version */
+.notice-warn {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--warning) 10%, var(--surface));
+  font-size: 13px;
+}
+.notice-warn .icon { flex: none; margin-top: 2px; color: var(--warning); }
+.notice-warn[hidden] { display: none; }
+
+/* Board background (see docs/superpowers/specs/2026-11-06-board-background-design.md).
+   .bg-canvas is shared by the board layer and the dialog preview: a dim veil over the image,
+   sized and placed by data-fit and data-position on the element itself. */
+.bg-canvas {
+  background:
+    linear-gradient(
+      color-mix(in srgb, var(--bg) var(--bg-dim, 30%), transparent),
+      color-mix(in srgb, var(--bg) var(--bg-dim, 30%), transparent)
+    ),
+    var(--bg-image, none) center / cover no-repeat;
+}
+.bg-canvas[data-fit="contain"] { background-size: contain; background-repeat: no-repeat; }
+.bg-canvas[data-fit="tile"] { background-size: auto; background-repeat: repeat; }
+.bg-canvas[data-fit="original"] { background-size: auto; background-repeat: no-repeat; }
+.bg-canvas[data-position="top"] { background-position: center top; }
+.bg-canvas[data-position="bottom"] { background-position: center bottom; }
+
+.board-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: none;
+  pointer-events: none;
+}
+#board-wrap[data-has-bg] .board-bg { display: block; }
+
+/* With an image behind the board, surfaces are slightly translucent so the image shows between cards. */
+#board-wrap[data-has-bg] .column { background: color-mix(in srgb, var(--column) 85%, transparent); }
+#board-wrap[data-has-bg] .card { background: color-mix(in srgb, var(--surface) 92%, transparent); }
+
+/* Dialog */
+.bg-source { display: flex; flex-direction: column; gap: 8px; }
+.bg-source-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.bg-source input[type="url"] { width: 100%; }
+.bg-preview {
+  height: 140px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.bg-preview.bg-canvas { background-color: var(--column); }
+#bg-error:empty { display: none; }
+</style>
+  <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0Ij4KICA8IS0tIFRoZSBhcHAncyBrYW5iYW4gbG9nbyAoc2FtZSBnZW9tZXRyeSBhcyB0aGUgaGVhZGVyIGljb24pLCBpbiB0aGUgYWNjZW50IGNvbG9yIC0tPgogIDxnIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2Y1NGUwMCIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogICAgPHJlY3QgeD0iMyIgeT0iMyIgd2lkdGg9IjE4IiBoZWlnaHQ9IjE4IiByeD0iMyIvPgogICAgPHBhdGggZD0iTTkgN3YxME0xNSA3djYiLz4KICA8L2c+Cjwvc3ZnPgo=" type="image/svg+xml">
+</head>
+<body>
+
+  <!-- Shared icon sprite. Use with <svg class="icon"><use href="#i-name"/></svg>. -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+    <defs>
+      <symbol id="i-kanban" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M9 7v10M15 7v6"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></symbol>
+      <symbol id="i-flag" viewBox="0 0 24 24"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></symbol>
+      <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V3M7 8l5-5 5 5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.9-3.9M4 4v4h4M4 13a8 8 0 0 0 14.9 3.9M20 20v-4h-4"/></symbol>
+      <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17h.01"/></symbol>
+      <symbol id="i-columns" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18"/></symbol>
+      <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></symbol>
+      <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+      <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a7 7 0 0 1 7-7h2a7 7 0 0 1 7 7v1"/></symbol>
+      <symbol id="i-paperclip" viewBox="0 0 24 24"><path d="M21.44 11.05 12.25 20.2a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></symbol>
+      <symbol id="i-message" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6"/></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+      <symbol id="i-up" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></symbol>
+      <symbol id="i-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+      <symbol id="i-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+      <symbol id="i-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+      <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+      <symbol id="i-folder-plus" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM12 10v6M9 13h6"/></symbol>
+      <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20v-.5A5.5 5.5 0 0 1 8 14h2a5.5 5.5 0 0 1 5.5 5.5v.5M16 4.5a3.5 3.5 0 0 1 0 7M18 14a5 5 0 0 1 3.5 5v1"/></symbol>
+      <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16zM14 6l4 4"/></symbol>
+      <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></symbol>
+    </defs>
+  </svg>
+
+  <header class="topbar">
+    <div class="project-bar">
+      <svg class="icon logo" aria-hidden="true"><use href="#i-kanban"/></svg>
+      <!-- The project name: click to rename in place. -->
+      <h1 class="project-title">
+        <button type="button" id="project-name" class="project-name" title="Rename project">
+          <span id="project-name-text">Kanban Board</span><svg class="icon icon-sm rename-hint" aria-hidden="true"><use href="#i-pencil"/></svg>
+        </button>
+      </h1>
+      <input type="text" id="project-name-input" class="project-name-input hidden" maxlength="80" aria-label="Project name" autocomplete="off">
+      <div class="menu" id="projects-menu">
+        <button type="button" id="btn-projects" class="menu-toggle" aria-expanded="false" aria-controls="projects-panel" title="Open another project">
+          <svg class="icon" aria-hidden="true"><use href="#i-folder"/></svg><span class="btn-label">Projects</span><svg class="icon icon-sm" aria-hidden="true"><use href="#i-down"/></svg>
+        </button>
+        <div id="projects-panel" class="menu-panel menu-panel-left hidden">
+          <p class="menu-heading" id="projects-heading">Open project</p>
+          <div id="projects-list" class="projects-list" role="group" aria-labelledby="projects-heading"></div>
+        </div>
+      </div>
+      <button type="button" id="btn-new-project"><svg class="icon" aria-hidden="true"><use href="#i-folder-plus"/></svg><span class="btn-label">New project</span></button>
+    </div>
+    <div class="toolbar">
+      <span class="input-icon search-wrap">
+        <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+        <input type="search" id="search" placeholder="Search tasks…" aria-label="Search tasks" title="Search (shortcut: /)">
+      </span>
+      <span class="input-icon">
+        <svg class="icon" aria-hidden="true"><use href="#i-user"/></svg>
+        <select id="worker-filter" aria-label="Show tasks assigned to" title="Show tasks assigned to a worker. New tasks are assigned to the selected worker."></select>
+      </span>
+      <span class="input-icon">
+        <svg class="icon" aria-hidden="true"><use href="#i-flag"/></svg>
+        <select id="priority-filter" aria-label="Filter by priority">
+          <option value="">All priorities</option>
+        </select>
+      </span>
+      <button type="button" id="btn-clear-filters" class="hidden"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>Clear filters</button>
+      <button type="button" id="btn-add-task" class="primary" title="New task (shortcut: +)"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>New task</button>
+      <div class="menu">
+        <button type="button" id="btn-menu" class="menu-toggle menu-burger" aria-label="Menu" aria-expanded="false" aria-controls="menu-panel">
+          <svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true">
+            <path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
+          </svg>
+        </button>
+        <!-- A disclosure panel (button + region), not an ARIA menu: Tab moves through its controls. -->
+        <div id="menu-panel" class="menu-panel hidden">
+          <button type="button" id="btn-manage-projects"><svg class="icon" aria-hidden="true"><use href="#i-folder"/></svg>Manage projects</button>
+          <button type="button" id="btn-workers"><svg class="icon" aria-hidden="true"><use href="#i-users"/></svg>Manage workers</button>
+          <button type="button" id="btn-statuses"><svg class="icon" aria-hidden="true"><use href="#i-columns"/></svg>Manage statuses</button>
+          <button type="button" id="btn-import"><svg class="icon" aria-hidden="true"><use href="#i-upload"/></svg>Import JSON</button>
+          <button type="button" id="btn-export"><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>Export JSON</button>
+          <button type="button" id="btn-background"><svg class="icon" aria-hidden="true"><use href="#i-image"/></svg>Board background…</button>
+          <button type="button" id="btn-shortcuts" aria-keyshortcuts="?"><svg class="icon" aria-hidden="true"><use href="#i-help"/></svg>Help<kbd class="menu-kbd" aria-hidden="true">?</kbd></button>
+          <label class="menu-select">Theme
+            <select id="theme-select">
+              <option value="system">System</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </label>
+          <p id="app-version" class="menu-version">v1.0.0</p>
+        </div>
+      </div>
+      <input type="file" id="file-input" accept="application/json,.json" hidden>
+    </div>
+  </header>
+
+  <main>
+    <div id="welcome" class="welcome" role="region" aria-label="Getting started" hidden>
+      <svg class="icon" aria-hidden="true"><use href="#i-upload"/></svg>
+      <p>Received a board from a colleague? Import its JSON file, then pick your name in the worker filter.</p>
+      <button type="button" id="btn-welcome-import" class="primary">Import JSON…</button>
+    </div>
+    <div class="board-wrap" id="board-wrap">
+      <div id="board-bg-layer" class="board-bg bg-canvas" aria-hidden="true"></div>
+      <div id="board" class="board"></div>
+      <button type="button" id="board-more-left" class="board-more board-more-left" aria-label="Scroll to previous columns" title="Previous columns">
+        <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-left"/></svg>
+      </button>
+      <button type="button" id="board-more" class="board-more board-more-right" aria-label="Scroll to more columns" title="More columns">
+        <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-right"/></svg>
+      </button>
+    </div>
+    <p id="card-help" class="sr-only">Alt plus Left or Right arrow moves the task to another column. Alt plus Up or Down arrow changes its order.</p>
+  </main>
+
+  <!-- Task editor -->
+  <dialog id="task-dialog" class="dialog wide" aria-labelledby="task-dialog-title">
+    <form id="task-form" class="dialog-form" novalidate>
+      <div class="dialog-head">
+        <h2 id="task-dialog-title">New task</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Close"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+      </div>
+
+      <!-- Two panes on wide screens: the task's fields, and its attachments and comments beside them. -->
+      <div class="dialog-body task-body">
+       <div class="task-main">
+        <div class="field">
+          <label><span>Title <span class="req" aria-hidden="true">*</span></span>
+            <input type="text" id="f-title" maxlength="200" autocomplete="off" required aria-describedby="f-title-error">
+          </label>
+          <p id="f-title-error" class="field-error"></p>
+        </div>
+
+        <label class="grow">Description
+          <textarea id="f-description" rows="6"></textarea>
+        </label>
+
+        <div class="grid-2">
+          <div class="field combo-field">
+            <label for="f-assigned">Assigned to</label>
+            <!-- Typable dropdown (ARIA combobox): pick a saved worker or type a new name (saved to the workers list on Save). -->
+            <div class="combo">
+              <input type="text" id="f-assigned" role="combobox" maxlength="100" autocomplete="off"
+                     aria-autocomplete="list" aria-expanded="false" aria-controls="f-assigned-list"
+                     placeholder="Pick or type a name" aria-describedby="f-assigned-hint">
+              <button type="button" id="f-assigned-toggle" class="combo-toggle" tabindex="-1" aria-label="Show all workers">
+                <svg class="icon" aria-hidden="true"><use href="#i-down"/></svg>
+              </button>
+              <ul id="f-assigned-list" class="combo-list" role="listbox" aria-label="Workers" hidden></ul>
+            </div>
+            <span id="f-assigned-hint" class="sr-only">Pick a saved worker or type a new name; new names are added to your workers.</span>
+          </div>
+          <label>Due date
+            <input type="date" id="f-due">
+          </label>
+          <label>Priority
+            <select id="f-priority"></select>
+          </label>
+          <label>Status
+            <select id="f-status"></select>
+          </label>
+        </div>
+
+       </div>
+
+       <div class="task-side">
+        <section class="side-section side-attachments" aria-labelledby="f-attachments-title">
+          <h3 id="f-attachments-title" class="side-title"><svg class="icon" aria-hidden="true"><use href="#i-paperclip"/></svg>Attachment URLs</h3>
+          <div id="f-attachments" class="list side-list"></div>
+          <div class="inline-add">
+            <input type="text" id="f-attachment-input" placeholder="https://example.com/file" autocomplete="off" aria-label="Attachment URL" aria-describedby="f-attachment-error">
+            <button type="button" id="btn-add-attachment"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Add URL</button>
+          </div>
+          <p id="f-attachment-error" class="field-error"></p>
+        </section>
+
+        <section class="side-section side-comments" aria-labelledby="f-comments-title">
+          <h3 id="f-comments-title" class="side-title"><svg class="icon" aria-hidden="true"><use href="#i-message"/></svg>Comments</h3>
+          <div id="f-comments" class="list side-list"></div>
+          <div class="comment-add">
+            <textarea id="f-comment-input" rows="2" placeholder="Write a comment…" aria-label="New comment"></textarea>
+            <button type="button" id="btn-add-comment"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Add comment</button>
+          </div>
+        </section>
+       </div>
+      </div>
+
+      <div class="dialog-foot">
+        <button type="button" id="btn-delete-task" class="danger"><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg>Delete</button>
+        <span class="spacer"></span>
+        <button type="button" data-close>Cancel</button>
+        <button type="submit" class="primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Status manager -->
+  <dialog id="status-dialog" class="dialog" aria-labelledby="status-dialog-title">
+    <form id="status-form" class="dialog-form" novalidate>
+      <div class="dialog-head">
+        <h2 id="status-dialog-title">Manage statuses</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Close"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+      </div>
+
+      <div class="dialog-body">
+        <p class="hint">Each status becomes a board column. Mark a status as “Completed” so its tasks are not flagged as overdue. Deleting a status moves its tasks to the first status.</p>
+        <div id="status-list" class="status-list"></div>
+        <p id="status-error" class="field-error" role="alert"></p>
+        <div>
+          <button type="button" id="btn-add-status"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Add status</button>
+        </div>
+      </div>
+
+      <div class="dialog-foot">
+        <span class="spacer"></span>
+        <button type="button" data-close>Cancel</button>
+        <button type="submit" class="primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Import choice -->
+  <dialog id="import-dialog" class="dialog small" aria-labelledby="import-dialog-title">
+    <div class="dialog-form">
+      <div class="dialog-head">
+        <h2 id="import-dialog-title">Import tasks</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Close"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+      </div>
+      <div class="dialog-body">
+        <p id="import-summary"></p>
+        <p id="import-version" class="notice-warn" role="note" hidden><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><span></span></p>
+        <fieldset class="list-field">
+          <legend>Projects in the file</legend>
+          <div id="import-projects" class="check-list"></div>
+        </fieldset>
+        <p class="hint" id="import-help-update" hidden><strong>Update</strong> overwrites your copy of each checked project that is already here with the one in the file, and adds the others. Changes made in your copy since are lost, so agree on them first.</p>
+        <p class="hint"><strong id="import-help-add">Add selected</strong> keeps your projects and adds the checked ones as new projects; a name that is already used gets a number.
+          <strong>Replace all</strong> removes your current projects and keeps only the checked ones. You can undo any of these right after.</p>
+      </div>
+      <div class="dialog-foot">
+        <span class="spacer"></span>
+        <button type="button" data-close>Cancel</button>
+        <button type="button" id="btn-import-replace" class="danger"><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg>Replace all</button>
+        <button type="button" id="btn-import-add" class="primary"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Add selected</button>
+        <button type="button" id="btn-import-update" class="primary" hidden><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>Update</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Board background -->
+  <dialog id="bg-dialog" class="dialog" aria-labelledby="bg-dialog-title">
+    <div class="dialog-form">
+      <div class="dialog-head">
+        <h2 id="bg-dialog-title">Board background</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Close"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+      </div>
+
+      <div class="dialog-body">
+        <div class="bg-source">
+          <label>Image address or file name
+            <input type="text" id="bg-url" placeholder="https://example.com/photo.jpg or img/photo.jpg" autocomplete="off" spellcheck="false">
+          </label>
+          <div class="bg-source-row">
+            <button type="button" id="bg-add-url"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Use address</button>
+            <button type="button" id="bg-choose-file"><svg class="icon" aria-hidden="true"><use href="#i-upload"/></svg>Choose file…</button>
+            <input type="file" id="bg-file" accept="image/*" hidden>
+          </div>
+          <p class="hint">A file name is looked up next to index.html. A web image's host can see your IP address when the image loads.</p>
+          <p id="bg-error" class="bad-url" role="alert"></p>
+          <p id="bg-share-note" class="hint" hidden></p>
+        </div>
+
+        <div id="bg-preview" class="bg-preview bg-canvas" role="img" aria-label="Background preview"></div>
+
+        <div class="grid-2">
+          <label>Fit
+            <select id="bg-fit">
+              <option value="cover">Cover</option>
+              <option value="contain">Contain</option>
+              <option value="tile">Tile</option>
+              <option value="original">Original size</option>
+            </select>
+          </label>
+          <label>Position
+            <select id="bg-position">
+              <option value="center">Center</option>
+              <option value="top">Top</option>
+              <option value="bottom">Bottom</option>
+            </select>
+          </label>
+        </div>
+
+        <label>Dim <span id="bg-dim-value" class="hint">30%</span>
+          <input type="range" id="bg-dim" min="0" max="70" step="5" value="30">
+        </label>
+
+        <label class="check-row">
+          <input type="checkbox" id="bg-all">
+          <span class="check-text">Use for every project
+            <span id="bg-scope-hint" class="hint">A project with its own background keeps it.</span></span>
+        </label>
+      </div>
+
+      <div class="dialog-foot">
+        <button type="button" id="bg-remove" class="danger"><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg>Remove</button>
+        <span class="spacer"></span>
+        <button type="button" id="bg-cancel" data-close>Cancel</button>
+        <button type="button" id="bg-save" class="primary">Save</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- New project -->
+  <dialog id="project-dialog" class="dialog small" aria-labelledby="project-dialog-title">
+    <form id="project-form" class="dialog-form" novalidate>
+      <div class="dialog-head">
+        <h2 id="project-dialog-title">New project</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Close"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+      </div>
+      <div class="dialog-body">
+        <div class="field">
+          <label><span>Name of the new project <span class="req" aria-hidden="true">*</span></span>
+            <input type="text" id="np-name" maxlength="80" autocomplete="off" required aria-describedby="np-name-error">
+          </label>
+          <p id="np-name-error" class="field-error"></p>
+        </div>
+        <label class="check-row">
+          <input type="checkbox" id="np-backup" checked>
+          <span>Save a backup of “<span id="np-current"></span>” as a JSON file first</span>
+        </label>
+        <p class="hint">Your current project also stays saved in this browser. Open it again from <strong>Projects</strong>.</p>
+      </div>
+      <div class="dialog-foot">
+        <span class="spacer"></span>
+        <button type="button" data-close>Cancel</button>
+        <button type="submit" class="primary"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Create project</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Manage projects -->
+  <dialog id="projects-dialog" class="dialog" aria-labelledby="projects-dialog-title">
+    <form id="projects-form" class="dialog-form" novalidate>
+      <div class="dialog-head">
+        <h2 id="projects-dialog-title">Manage projects</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Close"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+      </div>
+      <div class="dialog-body">
+        <p class="hint">Rename projects or delete them with all their tasks. Changes apply when you save, and you can undo right after.</p>
+        <div id="projects-rows" class="status-list"></div>
+        <p id="projects-error" class="field-error" role="alert"></p>
+      </div>
+      <div class="dialog-foot">
+        <span class="spacer"></span>
+        <button type="button" data-close>Cancel</button>
+        <button type="submit" class="primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Manage workers -->
+  <dialog id="workers-dialog" class="dialog" aria-labelledby="workers-dialog-title">
+    <form id="workers-form" class="dialog-form" novalidate>
+      <div class="dialog-head">
+        <h2 id="workers-dialog-title">Manage workers</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Close"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+      </div>
+      <div class="dialog-body">
+        <p class="hint">Workers are shared by all projects and listed in the “Assigned to” field. Renaming a worker updates their tasks in every project. Removing a worker keeps the name on existing tasks.</p>
+        <div id="workers-rows" class="status-list"></div>
+        <p id="workers-empty" class="empty">No workers yet. Add one here, or type a name in a task’s “Assigned to” field.</p>
+        <p id="workers-error" class="field-error" role="alert"></p>
+        <div>
+          <button type="button" id="btn-add-worker"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Add worker</button>
+        </div>
+      </div>
+      <div class="dialog-foot">
+        <span class="spacer"></span>
+        <button type="button" data-close>Cancel</button>
+        <button type="submit" class="primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Generic confirmation (discarding edits, deleting statuses or projects) -->
+  <dialog id="confirm-dialog" class="dialog small" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+    <form method="dialog" class="dialog-form">
+      <div class="dialog-head">
+        <h2 id="confirm-title">Are you sure?</h2>
+      </div>
+      <div class="dialog-body">
+        <p id="confirm-message"></p>
+      </div>
+      <div class="dialog-foot">
+        <span class="spacer"></span>
+        <button type="submit" value="cancel" id="confirm-cancel">Cancel</button>
+        <button type="submit" value="ok" id="confirm-ok" class="danger">OK</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Help: keyboard shortcuts -->
+  <dialog id="shortcuts-dialog" class="dialog small" aria-labelledby="shortcuts-title">
+    <div class="dialog-form">
+      <div class="dialog-head">
+        <h2 id="shortcuts-title">Help</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Close"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+      </div>
+      <div class="dialog-body">
+        <p class="hint">Keyboard shortcuts. The board ones work when you are not typing in a field.</p>
+        <section class="shortcut-group" aria-labelledby="sc-board">
+          <h3 id="sc-board">Board</h3>
+          <dl class="shortcuts">
+            <dt><kbd>+</kbd></dt><dd>New task</dd>
+            <dt><kbd>/</kbd></dt><dd>Search tasks</dd>
+            <dt><kbd>F2</kbd></dt><dd>Rename the project</dd>
+            <dt><kbd>Ctrl</kbd> + <kbd>Z</kbd></dt><dd>Undo the last delete or import</dd>
+            <dt><kbd>?</kbd></dt><dd>Show this help</dd>
+          </dl>
+        </section>
+        <section class="shortcut-group" aria-labelledby="sc-task">
+          <h3 id="sc-task">Focused task card</h3>
+          <dl class="shortcuts">
+            <dt><kbd>Enter</kbd></dt><dd>Open the task</dd>
+            <dt><kbd>Alt</kbd> + <kbd>←</kbd> <kbd>→</kbd></dt><dd>Move to the previous or next column</dd>
+            <dt><kbd>Alt</kbd> + <kbd>↑</kbd> <kbd>↓</kbd></dt><dd>Move up or down in the column</dd>
+          </dl>
+        </section>
+        <section class="shortcut-group" aria-labelledby="sc-dialogs">
+          <h3 id="sc-dialogs">Dialogs and menus</h3>
+          <dl class="shortcuts">
+            <dt><kbd>↓</kbd></dt><dd>Open the worker list in “Assigned to”</dd>
+            <dt><kbd>Enter</kbd></dt><dd>Pick a worker, or add a typed attachment URL</dd>
+            <dt><kbd>Esc</kbd></dt><dd>Close the list, dialog, or menu</dd>
+          </dl>
+        </section>
+      </div>
+    </div>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite">
+    <span id="toast-text"></span>
+    <button type="button" id="toast-action" class="toast-action hidden">Undo</button>
+  </div>
+
+  <script>
+// Pure data model: helpers, normalization, import/merge, and format versioning.
+// No DOM access, so it runs in the browser (as window.KanbanModel) and in Node for tests.
+(function (root) {
+  "use strict";
+
+  const FORMAT = "kanban-board";
+  // 1: a single board { statuses, tasks }. 2: a workspace { activeProjectId, workers, projects: [board + id, name] }.
+  const FORMAT_VERSION = 2;
+  // The app release, shown in the menu and written to every saved or exported file as "appVersion".
+  const APP_VERSION = "1.0.0";
+  const PRIORITIES = ["Low", "Medium", "High", "Critical"];
+  const DEFAULT_COLOR = "#64748b";
+  const PALETTE = ["#64748b", "#2563eb", "#d97706", "#16a34a", "#9333ea", "#db2777", "#0891b2", "#dc2626"];
+
+  const defaultStatuses = () => [
+    { id: "todo", name: "To Do", color: "#64748b", done: false },
+    { id: "in-progress", name: "In Progress", color: "#2563eb", done: false },
+    { id: "review", name: "Review", color: "#d97706", done: false },
+    { id: "done", name: "Done", color: "#16a34a", done: true },
+  ];
+
+  // ---------- Helpers ----------
+  const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  const clone = (o) => JSON.parse(JSON.stringify(o));
+  const str = (v) => (typeof v === "string" ? v.trim() : "");
+  const pad = (n) => String(n).padStart(2, "0");
+  const isDateString = (s) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
+
+  const esc = (v) =>
+    String(v ?? "").replace(/[&<>"']/g, (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  const toIsoDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const today = () => toIsoDate(new Date());
+
+  const slugify = (s) =>
+    s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "status";
+
+  const uniqueId = (base, taken) => {
+    let id = base;
+    let n = 2;
+    while (taken.has(id)) id = `${base}-${n++}`;
+    return id;
+  };
+
+  const isHttpUrl = (s) => {
+    try {
+      const u = new URL(s);
+      return u.protocol === "http:" || u.protocol === "https:";
+    } catch {
+      return false;
+    }
+  };
+
+  // ---------- Backgrounds ----------
+  // A background is { image, fit, position, dim }. The image is an http(s) address or the path of an image
+  // file relative to index.html ("orange.jpg", "img/orange.jpg"), so a shared JSON file never carries the
+  // image itself. A file that is not there simply shows no image.
+  const BG_FITS = ["cover", "contain", "tile", "original"];
+  const BG_POSITIONS = ["center", "top", "bottom"];
+  const IMAGE_EXT = /\.(png|jpe?g|gif|webp|avif|svg|bmp)$/i;
+
+  // A relative path made of plain folder and file names: no drive, scheme, or leading slash, and no "..".
+  function isImagePath(value) {
+    if (typeof value !== "string" || !value || value.length > 200) return false;
+    if (/[\\:*?"<>|\u0000-\u001f]/.test(value)) return false;
+    const parts = value.split("/");
+    if (parts.some((part) => !part || part === "." || part === "..")) return false;
+    return IMAGE_EXT.test(value);
+  }
+
+  // Returns a valid background or null. Missing or invalid fit, position, and dim fall back to defaults.
+  // Also reads the shape stored in the browser before 1.0.0: { source: "url", value }.
+  function normalizeBackground(raw) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    const image = typeof raw.image === "string" ? raw.image.trim()
+      : raw.source === "url" && typeof raw.value === "string" ? raw.value.trim() : "";
+    if (!image || !(isHttpUrl(image) || isImagePath(image))) return null;
+    const fit = BG_FITS.includes(raw.fit) ? raw.fit : "cover";
+    const position = BG_POSITIONS.includes(raw.position) ? raw.position : "center";
+    const n = Number(raw.dim);
+    const dim = Number.isFinite(n) && raw.dim !== null && raw.dim !== ""
+      ? Math.min(70, Math.max(0, Math.round(n / 5) * 5))
+      : 30;
+    return { image, fit, position, dim };
+  }
+
+  // The file name a picked image is shared under: its own name, with anything a path cannot hold replaced.
+  function imageFileName(name) {
+    const base = String(name || "").split(/[\\/]/).pop().replace(/[\\:*?"<>|\u0000-\u001f]/g, "-").trim();
+    const safe = base && base !== "." && base !== ".." ? base.slice(-120) : "";
+    return IMAGE_EXT.test(safe) ? safe : `${safe || "background"}.png`;
+  }
+
+  // Whole days from `fromIso` to `iso` (both YYYY-MM-DD), using calendar dates so DST does not matter.
+  function daysBetween(fromIso, iso) {
+    const [y1, m1, d1] = fromIso.split("-").map(Number);
+    const [y2, m2, d2] = iso.split("-").map(Number);
+    return Math.round((Date.UTC(y2, m2 - 1, d2) - Date.UTC(y1, m1 - 1, d1)) / 86400000);
+  }
+
+  // Short, friendly due-date text: "Today", "Tomorrow", "Yesterday", "In 3 days", "3 days ago",
+  // or a date ("Nov 20", with the year only when it differs from the current year).
+  function relativeDue(iso, todayIso = today()) {
+    const diff = daysBetween(todayIso, iso);
+    if (diff === 0) return "Today";
+    if (diff === 1) return "Tomorrow";
+    if (diff === -1) return "Yesterday";
+    if (diff > 1 && diff <= 6) return `In ${diff} days`;
+    if (diff < -1 && diff >= -6) return `${-diff} days ago`;
+    const [y, m, d] = iso.split("-").map(Number);
+    const sameYear = y === Number(todayIso.slice(0, 4));
+    return new Date(y, m - 1, d).toLocaleDateString("en-US", {
+      month: "short", day: "numeric", ...(sameYear ? {} : { year: "numeric" }),
+    });
+  }
+
+  // "overdue" (past and not completed), "soon" (today through 2 days out), or "" (no flag).
+  function dueState(dueDate, isDone, todayIso = today()) {
+    if (!dueDate || isDone) return "";
+    const diff = daysBetween(todayIso, dueDate);
+    if (diff < 0) return "overdue";
+    if (diff <= 2) return "soon";
+    return "";
+  }
+
+  // ---------- Normalization (stored data and imports) ----------
+  function normalizeStatus(s, index) {
+    const name = str(s && s.name);
+    if (!name) throw new Error(`Status #${index + 1} is missing a name.`);
+    return {
+      id: str(s.id) || slugify(name),
+      name,
+      color: typeof s.color === "string" && /^#[0-9a-f]{6}$/i.test(s.color) ? s.color : DEFAULT_COLOR,
+      done: s.done === true,
+    };
+  }
+
+  // Removes duplicate names and makes ids unique.
+  function dedupeStatuses(list) {
+    const ids = new Set();
+    const names = new Set();
+    const out = [];
+    for (const s of list) {
+      const key = s.name.toLowerCase();
+      if (names.has(key)) continue;
+      names.add(key);
+      s.id = uniqueId(s.id, ids);
+      ids.add(s.id);
+      out.push(s);
+    }
+    return out;
+  }
+
+  function normalizeComment(c) {
+    return {
+      id: c.id != null && String(c.id).trim() ? String(c.id) : uid(),
+      text: str(c.text),
+      createdAt: typeof c.createdAt === "string" ? c.createdAt : new Date().toISOString(),
+    };
+  }
+
+  function normalizeTask(t, n) {
+    if (!t || typeof t !== "object") throw new Error(`Task #${n} is not an object.`);
+    const title = str(t.title);
+    if (!title) throw new Error(`Task #${n} is missing a title.`);
+    const now = new Date().toISOString();
+    const list = (v) => (Array.isArray(v) ? v : []);
+    return {
+      id: t.id != null && String(t.id).trim() ? String(t.id) : uid(),
+      title,
+      description: str(t.description),
+      assignedTo: str(t.assignedTo),
+      dueDate: isDateString(t.dueDate) ? t.dueDate : "",
+      priority: PRIORITIES.find((p) => p.toLowerCase() === String(t.priority ?? "").toLowerCase()) || "Medium",
+      attachments: list(t.attachments)
+        .map((a) => str(a && typeof a === "object" ? a.url : a))
+        .filter(Boolean),
+      comments: list(t.comments)
+        .filter((c) => c && typeof c === "object")
+        .map(normalizeComment)
+        .filter((c) => c.text),
+      statusRef: str(t.status),
+      createdAt: typeof t.createdAt === "string" ? t.createdAt : now,
+      updatedAt: typeof t.updatedAt === "string" ? t.updatedAt : now,
+    };
+  }
+
+  // Brings older formats up to FORMAT_VERSION and rejects files from a newer version.
+  // A bare array or an object without "version" is treated as version 1 (the first format).
+  function migrate(data) {
+    if (Array.isArray(data) || !data || typeof data !== "object") return data;
+    if (data.format !== undefined && data.format !== FORMAT) {
+      throw new Error(`This file is not a kanban board export (format "${String(data.format)}").`);
+    }
+    const version = data.version === undefined ? 1 : Number(data.version);
+    if (!Number.isInteger(version) || version < 1) {
+      throw new Error(`Unknown board format version "${String(data.version)}".`);
+    }
+    if (version > FORMAT_VERSION) {
+      throw new Error(
+        `This file was made by a newer version of the board (format ${version}). ` +
+        `This version reads format ${FORMAT_VERSION} and older.`
+      );
+    }
+    // Format 1 needs no rewrite: parseWorkspace turns a format-1 board into a one-project workspace.
+    return data;
+  }
+
+  // Turns parsed JSON into { statuses, tasks }. Accepts either an array of tasks
+  // or an object with "tasks" and optional "statuses" arrays.
+  function parseBoardData(input) {
+    const data = migrate(input);
+    let rawTasks;
+    let rawStatuses;
+    if (Array.isArray(data)) {
+      rawTasks = data;
+    } else if (data && typeof data === "object" && Array.isArray(data.tasks)) {
+      rawTasks = data.tasks;
+      rawStatuses = data.statuses;
+    } else {
+      throw new Error('The file must contain an array of tasks, or an object with a "tasks" array.');
+    }
+    const statuses = Array.isArray(rawStatuses)
+      ? dedupeStatuses(rawStatuses.map((s, i) => normalizeStatus(s, i)))
+      : [];
+    const tasks = rawTasks.map((t, i) => normalizeTask(t, i + 1));
+    return { statuses, tasks };
+  }
+
+  // Finds the status id for a reference (id or name). Creates the status if unknown.
+  function resolveStatus(statuses, ref) {
+    if (ref) {
+      const lower = ref.toLowerCase();
+      const found = statuses.find((s) => s.id === ref) || statuses.find((s) => s.name.toLowerCase() === lower);
+      if (found) return found.id;
+      const id = uniqueId(slugify(ref), new Set(statuses.map((s) => s.id)));
+      statuses.push({ id, name: ref, color: PALETTE[statuses.length % PALETTE.length], done: false });
+      return id;
+    }
+    return statuses[0].id;
+  }
+
+  // Combines incoming data with a base board. mode: "replace" or "add".
+  function combine(base, incoming, mode) {
+    let statuses;
+    if (mode === "replace") {
+      statuses = incoming.statuses.length ? clone(incoming.statuses) : clone(base.statuses);
+    } else {
+      statuses = clone(base.statuses);
+      for (const s of incoming.statuses) {
+        const exists = statuses.some(
+          (x) => x.id === s.id || x.name.toLowerCase() === s.name.toLowerCase()
+        );
+        if (!exists) statuses.push(clone(s));
+      }
+    }
+    if (!statuses.length) statuses = defaultStatuses();
+
+    const tasks = mode === "add" ? clone(base.tasks) : [];
+    const takenIds = new Set(tasks.map((t) => t.id));
+    for (const incomingTask of incoming.tasks) {
+      const task = { ...incomingTask };
+      if (takenIds.has(task.id)) task.id = uid();   // avoid id collisions
+      takenIds.add(task.id);
+      task.status = resolveStatus(statuses, task.statusRef);
+      delete task.statusRef;
+      tasks.push(task);
+    }
+    return { statuses, tasks };
+  }
+
+  // The array order of board.tasks is the card order inside each column.
+  // Moves a task to statusId, placed before beforeId (a task in that column) or at the end of the column.
+  // Returns true when the status or the position changed.
+  function moveTask(board, taskId, statusId, beforeId = null) {
+    const tasks = board.tasks;
+    const from = tasks.findIndex((t) => t.id === taskId);
+    if (from < 0) return false;
+    const task = tasks[from];
+    const oldStatus = task.status;
+    tasks.splice(from, 1);
+
+    let to = -1;
+    if (beforeId && beforeId !== taskId) to = tasks.findIndex((t) => t.id === beforeId && t.status === statusId);
+    if (to < 0) {
+      let last = -1;
+      tasks.forEach((t, i) => { if (t.status === statusId) last = i; });
+      to = last < 0 ? tasks.length : last + 1;
+    }
+    tasks.splice(to, 0, task);
+    task.status = statusId;
+    return oldStatus !== statusId || to !== from;
+  }
+
+  // Swaps a task with its neighbor (-1 up, +1 down) among `visibleIds` (the cards shown in its column).
+  // Returns true when it moved.
+  function reorderTask(board, taskId, offset, visibleIds) {
+    const pos = visibleIds.indexOf(taskId);
+    const otherId = visibleIds[pos + offset];
+    if (pos < 0 || !otherId) return false;
+    const a = board.tasks.findIndex((t) => t.id === taskId);
+    const b = board.tasks.findIndex((t) => t.id === otherId);
+    [board.tasks[a], board.tasks[b]] = [board.tasks[b], board.tasks[a]];
+    return true;
+  }
+
+  // ---------- Workspace: projects and workers ----------
+  // A workspace holds every project (each one a board: statuses + tasks) and one workers list shared by all.
+  // { activeProjectId, workers: [name], projects: [{ id, name, statuses, tasks }] }
+
+  const sameName = (a, b) => a.toLowerCase() === b.toLowerCase();
+  const byName = (a, b) => a.localeCompare(b, undefined, { sensitivity: "base" });
+
+  // Trimmed, unique (ignoring case), sorted names.
+  function normalizeWorkers(list) {
+    const out = [];
+    for (const w of Array.isArray(list) ? list : []) {
+      const name = str(w && typeof w === "object" ? w.name : w);
+      if (name && !out.some((x) => sameName(x, name))) out.push(name);
+    }
+    return out.sort(byName);
+  }
+
+  // Adds a name unless it is already there (ignoring case). Returns the stored spelling.
+  function addWorker(workers, name) {
+    const clean = str(name);
+    if (!clean) return "";
+    const found = workers.find((w) => sameName(w, clean));
+    if (found) return found;
+    workers.push(clean);
+    workers.sort(byName);
+    return clean;
+  }
+
+  // "Name", or "Name (2)", "Name (3)"… when the name is taken (ignoring case).
+  function uniqueName(name, takenNames) {
+    const taken = new Set([...takenNames].map((n) => n.toLowerCase()));
+    if (!taken.has(name.toLowerCase())) return name;
+    let n = 2;
+    while (taken.has(`${name} (${n})`.toLowerCase())) n++;
+    return `${name} (${n})`;
+  }
+
+  const DEFAULT_PROJECT_NAME = "Kanban Board";
+
+  const newProject = (name) => ({ id: uid(), name, statuses: defaultStatuses(), tasks: [] });
+
+  // Normalizes one project (or a format-1 board) into { id, name, statuses, tasks }.
+  function buildProject(raw, fallbackName) {
+    const source = Array.isArray(raw) ? { tasks: raw } : raw;
+    const name = str(source && source.name) || fallbackName;
+    let parsed;
+    try {
+      parsed = parseBoardData(source);
+    } catch (err) {
+      throw new Error(`Project "${name}": ${err.message}`);
+    }
+    const board = combine({ statuses: defaultStatuses(), tasks: [] }, parsed, "replace");
+    const project = { id: str(source.id) || uid(), name, statuses: board.statuses, tasks: board.tasks };
+    const background = normalizeBackground(source.background);
+    if (background) project.background = background;
+    return project;
+  }
+
+  // Turns parsed JSON into a workspace. Format 2 has a "projects" array; format 1 (a single board,
+  // or a bare array of tasks) becomes one project named fallbackName.
+  function parseWorkspace(input, fallbackName = DEFAULT_PROJECT_NAME) {
+    const data = migrate(input);
+    let projects;
+    let workers;
+    let activeProjectId = null;
+    const isWorkspace = data && !Array.isArray(data) && typeof data === "object" && Array.isArray(data.projects);
+
+    if (isWorkspace) {
+      if (!data.projects.length) throw new Error("The file contains no projects.");
+      projects = data.projects.map((p, i) => {
+        if (!p || typeof p !== "object") throw new Error(`Project #${i + 1} is not an object.`);
+        return buildProject(p, `Project ${i + 1}`);
+      });
+      activeProjectId = str(data.activeProjectId) || null;
+    } else {
+      projects = [buildProject(data, fallbackName)];
+    }
+
+    const ids = new Set();
+    const names = [];
+    for (const p of projects) {
+      p.id = uniqueId(p.id, ids);
+      ids.add(p.id);
+      p.name = uniqueName(p.name, names);
+      names.push(p.name);
+    }
+
+    if (isWorkspace && Array.isArray(data.workers)) {
+      workers = normalizeWorkers(data.workers);
+    } else {
+      // Older data has no workers list: start one from the names already assigned to tasks.
+      workers = [];
+      for (const p of projects) for (const t of p.tasks) addWorker(workers, t.assignedTo);
+    }
+
+    if (!projects.some((p) => p.id === activeProjectId)) activeProjectId = projects[0].id;
+    const ws = { activeProjectId, workers, projects };
+    const background = isWorkspace ? normalizeBackground(data.background) : null;
+    if (background) ws.background = background;
+    return ws;
+  }
+
+  // Brings projects into a workspace. Mode "add" adds them as new projects, "replace" makes them the only
+  // projects, and "update" overwrites the projects with the same id in place and adds the others.
+  // Ids and names are made unique; workers are merged. The background for every project is taken from
+  // the file on "replace", and otherwise only when the workspace has none.
+  // Returns the projects as added or updated (with final names).
+  function addProjects(ws, incoming, mode, incomingWorkers = [], incomingBackground = null) {
+    const added = [];
+    const base = mode === "replace" ? [] : ws.projects.slice();
+    const updated = new Set();
+    if (mode === "update") {
+      for (const src of incoming) {
+        const i = base.findIndex((p) => p.id === src.id);
+        if (i === -1 || updated.has(src.id)) continue;
+        const p = clone(src);
+        p.name = uniqueName(p.name, base.filter((_, j) => j !== i).map((q) => q.name));
+        base[i] = p;
+        updated.add(p.id);
+        added.push(p);
+      }
+    }
+    const ids = new Set(base.map((p) => p.id));
+    const names = base.map((p) => p.name);
+    for (const src of incoming) {
+      if (updated.has(src.id)) continue;
+      const p = clone(src);
+      if (ids.has(p.id)) p.id = uid();
+      ids.add(p.id);
+      p.name = uniqueName(p.name, names);
+      names.push(p.name);
+      base.push(p);
+      added.push(p);
+    }
+    ws.projects = base;
+    for (const w of incomingWorkers) addWorker(ws.workers, w);
+    for (const p of added) for (const t of p.tasks) addWorker(ws.workers, t.assignedTo);
+    const background = normalizeBackground(incomingBackground);
+    if (background && (mode === "replace" || !ws.background)) ws.background = background;
+    if (!ws.projects.some((p) => p.id === ws.activeProjectId)) ws.activeProjectId = ws.projects[0].id;
+    return added;
+  }
+
+  // Tasks in all projects assigned to `name` (ignoring case).
+  function countAssigned(ws, name) {
+    let n = 0;
+    for (const p of ws.projects) for (const t of p.tasks) if (t.assignedTo && sameName(t.assignedTo, name)) n++;
+    return n;
+  }
+
+  // Renames a worker on every task in every project. Returns how many tasks changed.
+  function renameWorker(ws, oldName, newName) {
+    let n = 0;
+    for (const p of ws.projects) {
+      for (const t of p.tasks) {
+        if (t.assignedTo && sameName(t.assignedTo, oldName) && t.assignedTo !== newName) {
+          t.assignedTo = newName;
+          n++;
+        }
+      }
+    }
+    return n;
+  }
+
+  // Compares "1.2.3"-style versions part by part: negative when a < b, 0 when equal, positive when a > b.
+  // Missing or non-numeric parts count as 0.
+  function compareVersions(a, b) {
+    const pa = String(a).split(".").map((n) => parseInt(n, 10) || 0);
+    const pb = String(b).split(".").map((n) => parseInt(n, 10) || 0);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      const d = (pa[i] || 0) - (pb[i] || 0);
+      if (d) return d;
+    }
+    return 0;
+  }
+
+  // A warning for a file saved by a different app version, or "" when the versions match.
+  // Files from before 1.0.0 have no "appVersion".
+  function versionNotice(data, current = APP_VERSION) {
+    const saved = data && typeof data === "object" && !Array.isArray(data) ? str(data.appVersion) : "";
+    if (!saved) {
+      return `This file was saved by an older version of the app (before v${current}). ` +
+        "It can still be imported; check the projects afterward.";
+    }
+    const diff = compareVersions(saved, current);
+    if (diff === 0) return "";
+    if (diff > 0) {
+      return `This file was saved by a newer version of the app (v${saved}); this is v${current}. ` +
+        "Anything this version does not know about will be left out.";
+    }
+    return `This file was saved by an older version of the app (v${saved}); this is v${current}. ` +
+      "It can still be imported; check the projects afterward.";
+  }
+
+  // The object written to storage and to export files.
+  const serializeWorkspace = (ws, extra = {}) => ({
+    format: FORMAT,
+    version: FORMAT_VERSION,
+    appVersion: APP_VERSION,
+    ...extra,
+    activeProjectId: ws.activeProjectId,
+    workers: ws.workers,
+    ...(ws.background ? { background: ws.background } : {}),
+    projects: ws.projects.map((p) => ({
+      id: p.id, name: p.name, ...(p.background ? { background: p.background } : {}), statuses: p.statuses, tasks: p.tasks,
+    })),
+  });
+
+  const api = {
+    FORMAT, FORMAT_VERSION, APP_VERSION, PRIORITIES, DEFAULT_COLOR, PALETTE, DEFAULT_PROJECT_NAME, defaultStatuses,
+    uid, clone, str, pad, isDateString, esc, today, toIsoDate, slugify, uniqueId, isHttpUrl,
+    BG_FITS, BG_POSITIONS, isImagePath, normalizeBackground, imageFileName,
+    daysBetween, relativeDue, dueState,
+    normalizeStatus, dedupeStatuses, normalizeComment, normalizeTask, migrate, parseBoardData,
+    resolveStatus, combine, moveTask, reorderTask,
+    normalizeWorkers, addWorker, uniqueName, newProject, buildProject, parseWorkspace, addProjects,
+    countAssigned, renameWorker, serializeWorkspace, compareVersions, versionNotice,
+  };
+
+  if (typeof module !== "undefined" && module.exports) module.exports = api;
+  else root.KanbanModel = api;
+})(typeof window !== "undefined" ? window : globalThis);
+</script>
+  <script>
+// Browser storage: the workspace (all projects and workers) and UI preferences in localStorage,
+// picked background images in IndexedDB. Exposed as window.KanbanStorage. Depends on window.KanbanModel.
+(function () {
+  "use strict";
+
+  const { parseWorkspace, newProject, serializeWorkspace, normalizeBackground, DEFAULT_PROJECT_NAME } = window.KanbanModel;
+
+  const STORAGE_KEY = "kanban-board.workspace";     // format 2: every project and the workers list
+  const LEGACY_KEY = "kanban-board.v1";             // format 1: the single board saved by older versions
+  const THEME_KEY = "kanban-board.theme";           // "system" | "light" | "dark"
+  const WORKER_KEY = "kanban-board.worker-filter";  // the worker shown in the toolbar filter
+  const BG_KEY = "kanban-board.background";         // where earlier builds kept the background in localStorage
+
+  // ---------- Workspace ----------
+  const emptyWorkspace = () => {
+    const project = newProject(DEFAULT_PROJECT_NAME);
+    return { activeProjectId: project.id, workers: [], projects: [project] };
+  };
+
+  const read = (key) => {
+    try {
+      return localStorage.getItem(key);
+    } catch (err) {
+      console.warn("Could not read browser storage:", err);
+      return null;
+    }
+  };
+
+  // Returns { workspace, unreadableKeptAs, saveLocked, migrated }.
+  // When there is no workspace yet, the single board saved by older versions becomes its first project.
+  function loadWorkspace() {
+    let key = STORAGE_KEY;
+    let raw = read(STORAGE_KEY);
+    if (!raw) {
+      key = LEGACY_KEY;
+      raw = read(LEGACY_KEY);
+    }
+    if (!raw) return { workspace: emptyWorkspace(), unreadableKeptAs: null, saveLocked: false, migrated: false };
+
+    try {
+      const workspace = parseWorkspace(JSON.parse(raw));
+      return { workspace, unreadableKeptAs: null, saveLocked: false, migrated: key === LEGACY_KEY };
+    } catch (err) {
+      // Keep a copy before the next save overwrites it. If the copy fails,
+      // saving stays locked so the stored data is never destroyed silently.
+      console.warn("Could not load saved projects:", err);
+      const keptAs = keepUnreadableCopy(key, raw);
+      return { workspace: emptyWorkspace(), unreadableKeptAs: keptAs, saveLocked: keptAs === null, migrated: false };
+    }
+  }
+
+  // Copies unreadable saved data to a backup key. Returns the key used, or null on failure.
+  function keepUnreadableCopy(sourceKey, raw) {
+    const backupKey = `${sourceKey}.unreadable`;
+    try {
+      let key = backupKey;
+      const existing = localStorage.getItem(key);
+      if (existing !== null && existing !== raw) key = `${backupKey}.${Date.now()}`;
+      if (localStorage.getItem(key) === null) localStorage.setItem(key, raw);
+      return key;
+    } catch (err) {
+      console.warn("Could not keep a copy of the unreadable data:", err);
+      return null;
+    }
+  }
+
+  // The format-1 board is removed once the workspace that replaced it has been saved.
+  function removeLegacyBoard() {
+    try {
+      localStorage.removeItem(LEGACY_KEY);
+    } catch (err) {
+      /* nothing to do */
+    }
+  }
+
+  // Returns { ok: true } or { ok: false, message }.
+  function saveWorkspace(workspace) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(serializeWorkspace(workspace)));
+      return { ok: true };
+    } catch (err) {
+      const full = err && (err.name === "QuotaExceededError" || err.code === 22);
+      return {
+        ok: false,
+        message: full
+          ? "Browser storage is full, so this change was not saved. Export your board, then remove old tasks or attachments."
+          : `Could not save to browser storage: ${err.message}`,
+      };
+    }
+  }
+
+  // ---------- Theme ----------
+  function getStoredTheme() {
+    try {
+      const value = localStorage.getItem(THEME_KEY);
+      return value === "light" || value === "dark" ? value : "system";
+    } catch (err) {
+      return "system";
+    }
+  }
+
+  function saveTheme(value) {
+    try {
+      localStorage.setItem(THEME_KEY, value);
+    } catch (err) {
+      console.warn("Could not save theme:", err);
+    }
+  }
+
+  // ---------- Images ----------
+  // The background settings are part of the workspace (so they travel in exported JSON files) and name their
+  // image by file name. A picked image is also kept here, in IndexedDB under "image:<file name>", so it shows
+  // in this browser even when the file is not next to index.html. IndexedDB is used so a large image does not
+  // use up the ~5 MB localStorage quota the board itself needs; if it is unavailable, localStorage is used.
+  const DB_NAME = "kanban-board";
+  const DB_STORE = "kv";
+  const IMAGE_PREFIX = "image:";
+  const IMAGE_LS_PREFIX = "kanban-board.image:";
+  let dbPromise = null;
+
+  function openDb() {
+    if (!dbPromise) {
+      dbPromise = new Promise((resolve, reject) => {
+        if (typeof indexedDB === "undefined") return reject(new Error("IndexedDB is not available."));
+        const req = indexedDB.open(DB_NAME, 1);
+        req.onupgradeneeded = () => req.result.createObjectStore(DB_STORE);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+        req.onblocked = () => reject(new Error("IndexedDB is blocked."));
+      }).catch((err) => {
+        dbPromise = null;   // allow a retry later
+        throw err;
+      });
+    }
+    return dbPromise;
+  }
+
+  async function idb(mode, fn) {
+    const db = await openDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(DB_STORE, mode);
+      const req = fn(tx.objectStore(DB_STORE));
+      tx.oncomplete = () => resolve(req.result);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error("Transaction aborted."));
+    });
+  }
+
+  const isImageData = (v) => typeof v === "string" && /^data:image\//.test(v);
+
+  // Resolves to the kept copy of an image (a data URL), or null.
+  async function getImage(name) {
+    try {
+      const stored = await idb("readonly", (s) => s.get(IMAGE_PREFIX + name));
+      if (isImageData(stored)) return stored;
+    } catch (err) {
+      /* IndexedDB unavailable: try localStorage */
+    }
+    const fallback = read(IMAGE_LS_PREFIX + name);
+    return isImageData(fallback) ? fallback : null;
+  }
+
+  // Resolves true on success, false when the browser refuses the write.
+  async function saveImage(name, dataUrl) {
+    try {
+      await idb("readwrite", (s) => s.put(dataUrl, IMAGE_PREFIX + name));
+      try { localStorage.removeItem(IMAGE_LS_PREFIX + name); } catch (err) { /* nothing to do */ }
+      return true;
+    } catch (err) {
+      console.warn("IndexedDB write failed, trying localStorage:", err);
+      try {
+        localStorage.setItem(IMAGE_LS_PREFIX + name, dataUrl);
+        return true;
+      } catch (err2) {
+        console.warn("Could not save the image:", err2);
+        return false;
+      }
+    }
+  }
+
+  // Deletes kept images that no background names any more.
+  async function pruneImages(names) {
+    const keep = new Set(names);
+    try {
+      const keys = await idb("readonly", (s) => s.getAllKeys());
+      const stale = keys.filter((k) => typeof k === "string" && k.startsWith(IMAGE_PREFIX) && !keep.has(k.slice(IMAGE_PREFIX.length)));
+      if (stale.length) await idb("readwrite", (s) => { stale.forEach((k) => s.delete(k)); return s.count(); });
+    } catch (err) {
+      /* IndexedDB unavailable: nothing to prune there */
+    }
+    try {
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(IMAGE_LS_PREFIX) && !keep.has(k.slice(IMAGE_LS_PREFIX.length))) localStorage.removeItem(k);
+      }
+    } catch (err) {
+      /* nothing to do */
+    }
+  }
+
+  // ---------- Backgrounds saved by earlier builds ----------
+  // Earlier builds kept the backgrounds outside the workspace: the one for every project under "background"
+  // and each project's own under "background:<project id>" (in IndexedDB, or in localStorage under
+  // BG_KEY and BG_KEY:<project id>), with a picked image stored inline as a data URL.
+  const BG_PREFIX = "background:";
+  const EXT_BY_TYPE = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif", "image/svg+xml": "svg" };
+
+  // Resolves to { all, projects: { [projectId]: background }, finish } or null when there is nothing to move.
+  // Picked images are kept under a file name of their own. Call finish() once the workspace holding the
+  // backgrounds has been saved; it deletes the old entries.
+  async function takeLegacyBackgrounds() {
+    const found = [];   // [projectId or null, raw value, delete function]
+    try {
+      const keys = await idb("readonly", (s) => s.getAllKeys());
+      for (const k of keys) {
+        if (k !== "background" && !(typeof k === "string" && k.startsWith(BG_PREFIX))) continue;
+        const raw = await idb("readonly", (s) => s.get(k));
+        found.push([k === "background" ? null : k.slice(BG_PREFIX.length), raw, () => idb("readwrite", (s) => s.delete(k))]);
+      }
+    } catch (err) {
+      /* IndexedDB unavailable */
+    }
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k !== BG_KEY && !(k && k.startsWith(BG_KEY + ":"))) continue;
+        const projectId = k === BG_KEY ? null : k.slice(BG_KEY.length + 1);
+        const remove = () => localStorage.removeItem(k);
+        const inIdb = found.find(([id]) => id === projectId);
+        if (inIdb) {   // IndexedDB wins; the copy here is only deleted
+          const removeIdb = inIdb[2];
+          inIdb[2] = async () => { await removeIdb(); remove(); };
+          continue;
+        }
+        let raw = null;
+        try { raw = JSON.parse(localStorage.getItem(k)); } catch (err) { /* unreadable: just delete it */ }
+        found.push([projectId, raw, remove]);
+      }
+    } catch (err) {
+      /* nothing to do */
+    }
+    if (!found.length) return null;
+
+    const result = { all: null, projects: {} };
+    for (const [projectId, raw] of found) {
+      let bg = null;
+      if (raw && raw.source === "file" && isImageData(raw.value)) {
+        const type = (raw.value.match(/^data:([^;,]+)/) || [])[1];
+        const name = `background-${projectId ? projectId.slice(0, 8) : "all"}.${EXT_BY_TYPE[type] || "png"}`;
+        if (await saveImage(name, raw.value)) bg = normalizeBackground({ ...raw, image: name });
+      } else {
+        bg = normalizeBackground(raw);
+      }
+      if (!bg) continue;
+      if (projectId) result.projects[projectId] = bg;
+      else result.all = bg;
+    }
+    result.finish = async () => {
+      for (const [, , remove] of found) {
+        try { await remove(); } catch (err) { /* nothing to do */ }
+      }
+    };
+    return result;
+  }
+
+  // ---------- Worker filter ----------
+  // "" for all workers, UNASSIGNED for tasks with nobody assigned, or a worker name.
+  function getWorkerFilter() {
+    return read(WORKER_KEY) || "";
+  }
+
+  function saveWorkerFilter(value) {
+    try {
+      if (value) localStorage.setItem(WORKER_KEY, value);
+      else localStorage.removeItem(WORKER_KEY);
+    } catch (err) {
+      console.warn("Could not save the worker filter:", err);
+    }
+  }
+
+  window.KanbanStorage = {
+    STORAGE_KEY, LEGACY_KEY, THEME_KEY, BG_KEY,
+    loadWorkspace, saveWorkspace, removeLegacyBoard, getWorkerFilter, saveWorkerFilter,
+    getStoredTheme, saveTheme,
+    getImage, saveImage, pruneImages, takeLegacyBackgrounds,
+  };
+})();
+</script>
+  <script>
+// UI for the board. Data rules live in js/model.js (window.KanbanModel); storage in js/storage.js (window.KanbanStorage).
+(function () {
+  "use strict";
+
+  const M = window.KanbanModel;
+  const S = window.KanbanStorage;
+  const { PRIORITIES, PALETTE, uid, clone, esc, isHttpUrl, slugify, uniqueId } = M;
+
+  // ---------- State ----------
+  // workspace holds every project and the shared workers list; board is the open project (one of workspace.projects).
+  let workspace = { activeProjectId: null, workers: [], projects: [] };
+  let board = { id: null, name: "", statuses: [], tasks: [] };
+  let workerFilter = "";      // "" (all), UNASSIGNED, or a worker name
+  let removeLegacyAfterSave = false;   // the old single-board data is deleted once the workspace is saved
+  // Worker names are trimmed, so a value starting with a space can never clash with a real name.
+  const UNASSIGNED = " unassigned";
+  let draft = null;           // task being edited in the task dialog
+  let draftSnapshot = "";     // task form state when the dialog opened, to detect unsaved changes
+  let statusDraft = [];       // working copy of statuses in the status dialog
+  let statusSnapshot = "";
+  let pendingImport = null;   // parsed import waiting for the add/replace choice
+  let dragId = null;          // id of the card being dragged
+  let toastTimer = null;
+  let undoAction = null;      // { run } for the last delete or import; cleared by the next change
+  let saveLocked = false;     // true when unreadable data could not be backed up
+
+  // ---------- Helpers ----------
+  const $ = (id) => document.getElementById(id);
+
+  // Inline icon from the sprite in index.html. id is a symbol id such as "i-plus".
+  const icon = (id, extraClass = "") =>
+    `<svg class="icon ${extraClass}" aria-hidden="true" focusable="false"><use href="#${id}"/></svg>`;
+
+  const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+  const formatDate = (iso) => {
+    const [y, m, d] = iso.split("-").map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+  };
+
+  const formatDateTime = (iso) => {
+    const d = new Date(iso);
+    return isNaN(d) ? "" : d.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
+  };
+
+  const isTyping = (el) =>
+    !!el && (el.matches("input, textarea, select") || el.isContentEditable);
+
+  // Shows a message at the bottom. action: { label, run } adds a button (for Undo); Ctrl+Z runs it too.
+  function toast(message, kind = "info", action = null) {
+    const el = $("toast");
+    const btn = $("toast-action");
+    $("toast-text").textContent = message;
+    el.className = `toast show ${kind}${action ? " has-action" : ""}`;
+    btn.classList.toggle("hidden", !action);
+    if (action) {
+      btn.textContent = action.label;
+      undoAction = action;
+    }
+    clearTimeout(toastTimer);
+    const ms = action ? 8000 : kind === "error" ? 7000 : 3500;
+    toastTimer = setTimeout(hideToast, ms);
+  }
+
+  function hideToast() {
+    $("toast").classList.remove("show", "has-action");
+  }
+
+  function runUndo() {
+    if (!undoAction) return;
+    const action = undoAction;
+    undoAction = null;
+    hideToast();
+    action.run();
+  }
+
+  $("toast-action").addEventListener("click", runUndo);
+
+  // Inline field errors: text under the field, linked through aria-describedby in the markup.
+  function setFieldError(inputId, errorId, message) {
+    $(errorId).textContent = message || "";
+    if (message) $(inputId).setAttribute("aria-invalid", "true");
+    else $(inputId).removeAttribute("aria-invalid");
+  }
+
+  // ---------- Confirmation dialog ----------
+  // Resolves true when the user picks the confirm button.
+  function confirmAction({ title, message, ok, cancel = "Cancel" }) {
+    const dialog = $("confirm-dialog");
+    $("confirm-title").textContent = title;
+    $("confirm-message").textContent = message;
+    $("confirm-ok").textContent = ok;
+    $("confirm-cancel").textContent = cancel;
+    dialog.showModal();
+    $("confirm-cancel").focus();   // the safe choice is the default
+    // Resolve from submit/cancel, which fire synchronously. The "close" event is queued, so a stale one
+    // from a previous prompt could otherwise answer a prompt that was reopened quickly.
+    const form = dialog.querySelector("form");
+    return new Promise((resolve) => {
+      const finish = (ok) => {
+        form.removeEventListener("submit", onSubmit);
+        dialog.removeEventListener("cancel", onCancel);
+        resolve(ok);
+      };
+      const onSubmit = (e) => finish(!!e.submitter && e.submitter.value === "ok");
+      const onCancel = () => finish(false);
+      form.addEventListener("submit", onSubmit);
+      dialog.addEventListener("cancel", onCancel);
+    });
+  }
+
+  // Dialogs with unsaved-change checks. Closing through Cancel, the X button, or Escape asks first.
+  const closeGuards = new Map();   // dialog element -> { isDirty, message }
+
+  async function requestClose(dialog) {
+    const guard = closeGuards.get(dialog);
+    if (guard && guard.isDirty()) {
+      const discard = await confirmAction({
+        title: "Discard changes?",
+        message: guard.message,
+        ok: "Discard",
+        cancel: "Keep editing",
+      });
+      if (!discard) return;
+    }
+    dialog.close();
+  }
+
+  function guardClose(dialog, isDirty, message) {
+    closeGuards.set(dialog, { isDirty, message });
+    dialog.addEventListener("cancel", (e) => {
+      if (isDirty()) {
+        e.preventDefault();
+        requestClose(dialog);
+      }
+    });
+  }
+
+  document.querySelectorAll("[data-close]").forEach((btn) =>
+    btn.addEventListener("click", () => requestClose(btn.closest("dialog"))));
+
+  // ---------- Saving ----------
+  // Saves and re-renders. Returns true only when the board was written to storage,
+  // so callers show a success message only for changes that will survive a reload.
+  function commit() {
+    undoAction = null;   // an older undo would overwrite this change
+    render();
+    if (saveLocked) {
+      toast("Changes are not saved: the stored board could not be backed up. Export your data to keep it.", "error");
+      return false;
+    }
+    const result = S.saveWorkspace(workspace);
+    if (!result.ok) {
+      toast(result.message, "error");
+      return false;
+    }
+    if (removeLegacyAfterSave) {
+      S.removeLegacyBoard();
+      removeLegacyAfterSave = false;
+    }
+    return true;
+  }
+
+  const projectById = (id) => workspace.projects.find((p) => p.id === id);
+
+  // Makes a project the open one (falls back to the first project).
+  function setActiveProject(id) {
+    board = projectById(id) || workspace.projects[0];
+    workspace.activeProjectId = board.id;
+  }
+
+  // ---------- Other tabs ----------
+  // Another tab saved: load its version so this tab does not overwrite it with stale data.
+  // This tab keeps showing its own project when it still exists.
+  function reloadFromOtherTab() {
+    const loaded = S.loadWorkspace();
+    if (loaded.unreadableKeptAs || loaded.saveLocked) return;   // leave our copy alone
+    const openId = board.id;
+    workspace = loaded.workspace;
+    setActiveProject(projectById(openId) ? openId : workspace.activeProjectId);
+    undoAction = null;
+    render();
+    const editing = $("task-dialog").open || $("status-dialog").open;
+    toast(editing
+      ? "The board was changed in another tab. Saving now applies your edits on top of those changes."
+      : "The board was updated in another tab.");
+  }
+
+  window.addEventListener("storage", (e) => {
+    if (e.key === S.STORAGE_KEY || e.key === null) reloadFromOtherTab();
+    if (e.key === S.THEME_KEY || e.key === null) {
+      const theme = S.getStoredTheme();
+      applyTheme(theme);
+      $("theme-select").value = theme;
+    }
+  });
+
+
+  // ---------- Theme ----------
+  // "system" follows the OS (no data-theme attribute).
+  function applyTheme(value) {
+    if (value === "light" || value === "dark") document.documentElement.dataset.theme = value;
+    else delete document.documentElement.dataset.theme;
+  }
+
+  function setTheme(value) {
+    const next = value === "light" || value === "dark" ? value : "system";
+    S.saveTheme(next);
+    applyTheme(next);
+  }
+
+  // ---------- Background ----------
+  // Wraps a URL as a CSS url("…") token, escaping the characters that could end the string early.
+  function cssUrl(url) {
+    const escaped = String(url).replace(/[\\"()\r\n]/g, (c) => ({
+      "\\": "\\\\", '"': '\\"', "(": "\\(", ")": "\\)", "\r": "%0D", "\n": "%0A",
+    })[c]);
+    return `url("${escaped}")`;
+  }
+
+  const BG_MAX_SIDE = 2560;                 // longer side, in pixels
+  const BG_MAX_BYTES = 2 * 1024 * 1024;     // stored image, after encoding
+
+  // Resolves true when the address loads as an image, false otherwise (a web page, a 404, a network error).
+  function probeImage(url) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve(true);
+      img.onerror = () => resolve(false);
+      img.src = url;
+    });
+  }
+
+  function readAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // Returns a data URL no larger than BG_MAX_SIDE on its longer side. PNG and WebP within the limit are kept as-is;
+  // everything else is redrawn and encoded as JPEG at quality 0.85.
+  async function downscaleImage(file) {
+    const objectUrl = URL.createObjectURL(file);
+    try {
+      const img = await new Promise((resolve, reject) => {
+        const el = new Image();
+        el.onload = () => resolve(el);
+        el.onerror = () => reject(new Error("That file could not be read as an image."));
+        el.src = objectUrl;
+      });
+      // An image with no intrinsic size (for example an SVG without width, height, or viewBox) cannot be drawn.
+      if (!img.naturalWidth || !img.naturalHeight) {
+        throw new Error("That file could not be read as an image.");
+      }
+      const longest = Math.max(img.naturalWidth, img.naturalHeight);
+      if ((file.type === "image/png" || file.type === "image/webp") && longest <= BG_MAX_SIDE) {
+        return await readAsDataUrl(file);
+      }
+      const scale = Math.min(1, BG_MAX_SIDE / longest);
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+      canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL("image/jpeg", 0.85);
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  }
+
+  // Validates a chosen file and returns its stored data URL, or throws with a message for the dialog.
+  async function readLocalImage(file) {
+    if (!file || !String(file.type).startsWith("image/")) throw new Error("Choose an image file.");
+    const dataUrl = await downscaleImage(file);
+    const bytes = Math.round(dataUrl.length * 0.75);   // approximate decoded size of the base64 payload
+    if (bytes > BG_MAX_BYTES) throw new Error("This image is still larger than 2 MB. Choose a smaller image.");
+    return dataUrl;
+  }
+
+  // Paints one .bg-canvas element (the board layer or the dialog preview). src is the image to show,
+  // or null for none (no background, or its file is missing).
+  function paintCanvas(el, bg, src) {
+    if (!bg || !src) {
+      el.removeAttribute("data-fit");
+      el.removeAttribute("data-position");
+      el.style.removeProperty("--bg-image");
+      el.style.removeProperty("--bg-dim");
+      return;
+    }
+    el.style.setProperty("--bg-image", cssUrl(src));
+    el.style.setProperty("--bg-dim", `${bg.dim}%`);
+    el.dataset.fit = bg.fit;
+    el.dataset.position = bg.position;
+  }
+
+  // ---------- Background images ----------
+  // A background names its image by web address or by file name (see M.normalizeBackground). A file name
+  // is looked up in the copy kept in this browser when the image was picked here, then next to index.html
+  // (and, for a bare name, in the img folder beside it). An image found nowhere shows no background.
+  const imageSources = new Map();   // image → Promise of its source; only images that were found stay here
+
+  const relativeUrl = (path) => path.split("/").map(encodeURIComponent).join("/");
+
+  async function findImage(image) {
+    if (M.isHttpUrl(image)) return image;
+    const kept = await S.getImage(image);
+    if (kept) return kept;
+    for (const path of image.includes("/") ? [image] : [image, `img/${image}`]) {
+      const url = relativeUrl(path);
+      if (await probeImage(url)) return url;
+    }
+    return null;
+  }
+
+  function resolveImage(image) {
+    if (!imageSources.has(image)) {
+      const found = findImage(image);
+      imageSources.set(image, found);
+      found.then((src) => { if (!src && imageSources.get(image) === found) imageSources.delete(image); });
+    }
+    return imageSources.get(image);
+  }
+
+  // Applies a background (or null for none) to the board and to the dialog preview.
+  // A draft that was just picked carries its image as `preview` until it is saved.
+  let paintRequest = 0;
+  function applyBackground(bg) {
+    const request = ++paintRequest;
+    const paint = (src) => {
+      if (request !== paintRequest) return;   // a newer background was applied meanwhile
+      $("board-wrap").toggleAttribute("data-has-bg", !!(bg && src));
+      paintCanvas($("board-bg-layer"), bg, src);
+      paintCanvas($("bg-preview"), bg, src);
+    };
+    if (!bg) paint(null);
+    else if (bg.preview) paint(bg.preview);
+    else resolveImage(bg.image).then(paint, () => paint(null));
+  }
+
+  // ---------- Background state ----------
+  // Backgrounds are part of the workspace: board.background is the open project's own, and
+  // workspace.background the one for every project. A project's own background takes precedence.
+  const bgCommitted = () => board.background || workspace.background || null;
+  let bgShown;   // JSON of the background last applied by showCommittedBackground
+
+  // Shows the committed background unless the dialog is previewing a draft. Called by every render.
+  function showCommittedBackground(force = false) {
+    if ($("bg-dialog").open) return;
+    const key = JSON.stringify(bgCommitted());
+    if (!force && key === bgShown) return;
+    bgShown = key;
+    applyBackground(bgCommitted());
+  }
+
+  // Kept images have no change event, so tabs tell each other when one is replaced.
+  let channel = null;
+  try {
+    channel = new BroadcastChannel("kanban-board");
+    channel.addEventListener("message", (e) => {
+      if (!e.data || e.data.type !== "image") return;
+      imageSources.delete(e.data.name);
+      showCommittedBackground(true);
+    });
+  } catch (err) {
+    /* BroadcastChannel unavailable: other tabs pick the change up on reload */
+  }
+
+  // ---------- Background dialog ----------
+  // bgDraft is the value being edited; the board previews it live. Closing without Save restores bgCommitted().
+  let bgDraft = null;
+  let bgRequest = 0;   // bumped by every new address or file, and by opening, closing, and removing; stale results are dropped
+
+  function updateBgScopeHint() {
+    $("bg-scope-hint").textContent = $("bg-all").checked
+      ? "A project with its own background keeps it."
+      : `Only for “${board.name}”.`;
+  }
+  $("bg-all").addEventListener("change", updateBgScopeHint);
+
+  // How the chosen image travels with an exported JSON file.
+  function updateBgShareNote() {
+    const note = $("bg-share-note");
+    const image = bgDraft && bgDraft.image;
+    note.hidden = !image || M.isHttpUrl(image);
+    if (!note.hidden) {
+      note.textContent = `Exported files name this image “${image}”. To share it, put the file ` +
+        (image.includes("/") ? "at that path beside index.html." : "next to index.html or in its img folder.");
+    }
+  }
+
+  const bgDraftFromControls = () => ({
+    fit: $("bg-fit").value,
+    position: $("bg-position").value,
+    dim: Number($("bg-dim").value),
+  });
+
+  function setBgError(message) {
+    $("bg-error").textContent = message || "";
+  }
+
+  function setBgDraft(value) {
+    bgDraft = value;
+    applyBackground(bgDraft);
+    updateBgShareNote();
+  }
+
+  function syncBgControls(bg) {
+    const values = bg || { fit: "cover", position: "center", dim: 30 };
+    $("bg-fit").value = values.fit;
+    $("bg-position").value = values.position;
+    $("bg-dim").value = String(values.dim);
+    $("bg-dim-value").textContent = `${values.dim}%`;
+  }
+
+  function openBackgroundDialog() {
+    bgRequest++;
+    const current = bgCommitted();
+    // Checked when the board shows the background for every project (this project has none of its own).
+    $("bg-all").checked = !board.background && !!workspace.background;
+    updateBgScopeHint();
+    $("bg-url").value = "";
+    setBgError("");
+    syncBgControls(current);
+    setBgDraft(current ? { ...current } : null);
+    $("bg-dialog").showModal();
+  }
+
+  $("btn-background").addEventListener("click", openBackgroundDialog);
+
+  // Fit, Position, and Dim change the draft (when there is one) and preview at once.
+  $("bg-fit").addEventListener("change", () => {
+    if (!bgDraft) return;
+    bgDraft.fit = $("bg-fit").value;
+    applyBackground(bgDraft);
+  });
+  $("bg-position").addEventListener("change", () => {
+    if (!bgDraft) return;
+    bgDraft.position = $("bg-position").value;
+    applyBackground(bgDraft);
+  });
+  $("bg-dim").addEventListener("input", () => {
+    $("bg-dim-value").textContent = `${$("bg-dim").value}%`;
+    if (!bgDraft) return;
+    bgDraft.dim = Number($("bg-dim").value);
+    applyBackground(bgDraft);
+  });
+
+  // An http(s) address, or the path of an image file beside index.html.
+  $("bg-add-url").addEventListener("click", async () => {
+    const value = $("bg-url").value.trim();
+    setBgError("");
+    const isUrl = M.isHttpUrl(value);
+    if (!isUrl && !M.isImagePath(value)) {
+      setBgError("Use an http:// or https:// address, or an image file name such as img/photo.jpg");
+      return;
+    }
+    const request = ++bgRequest;
+    const src = isUrl ? ((await probeImage(value)) ? value : null) : await findImage(value);
+    if (request !== bgRequest || !$("bg-dialog").open) return;   // superseded, or the dialog closed meanwhile
+    if (!src) {
+      setBgError(isUrl ? "This address does not load an image" : "No image file by that name next to index.html");
+      return;
+    }
+    setBgDraft({ ...bgDraftFromControls(), image: value });
+  });
+
+  $("bg-choose-file").addEventListener("click", () => $("bg-file").click());
+
+  $("bg-file").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";   // allow choosing the same file again
+    if (!file) return;
+    setBgError("");
+    const request = ++bgRequest;
+    try {
+      const dataUrl = await readLocalImage(file);
+      if (request !== bgRequest || !$("bg-dialog").open) return;
+      setBgDraft({ ...bgDraftFromControls(), image: M.imageFileName(file.name), preview: dataUrl });
+    } catch (err) {
+      if (request !== bgRequest || !$("bg-dialog").open) return;
+      setBgError(err.message);
+    }
+  });
+
+  // Removes the background the checkbox points at: with "every project" checked, the one for every
+  // project (and this project's own); otherwise only this project's own, so the one for every project
+  // shows through if there is one.
+  function removeBackground(forAll) {
+    if (!bgCommitted()) return;
+    delete board.background;
+    if (forAll) delete workspace.background;
+    if (commit() && !forAll && workspace.background) toast("This project now shows the background for every project.");
+  }
+
+  $("bg-remove").addEventListener("click", () => {
+    bgRequest++;
+    bgDraft = null;
+    setBgError("");
+    const forAll = $("bg-all").checked;
+    $("bg-dialog").close();
+    removeBackground(forAll);
+  });
+
+  // Saves the draft for this project, or for every project when the checkbox is checked. Saving for every
+  // project also drops this project's own background, so this project shows the new one too;
+  // other projects with their own background keep it. A picked image is kept in this browser first.
+  $("bg-save").addEventListener("click", async () => {
+    const forAll = $("bg-all").checked;
+    if (!bgDraft) {
+      $("bg-dialog").close();
+      removeBackground(forAll);
+      return;
+    }
+    const { preview, ...value } = bgDraft;
+    const targetBoard = board;
+    if (preview) {
+      const saveBtn = $("bg-save");
+      saveBtn.disabled = true;
+      const ok = await S.saveImage(value.image, preview);
+      saveBtn.disabled = false;
+      if (!ok) {
+        const message = "The image is too large to save in this browser.";
+        if ($("bg-dialog").open) setBgError(message);   // inside the dialog, where the user is looking
+        toast(message, "error");
+        return;   // keep the dialog open with the draft still shown
+      }
+      imageSources.set(value.image, Promise.resolve(preview));
+      if (channel) channel.postMessage({ type: "image", name: value.image });
+    }
+    if (forAll) {
+      workspace.background = value;
+      delete targetBoard.background;
+    } else {
+      targetBoard.background = value;
+    }
+    bgDraft = null;
+    if ($("bg-dialog").open) $("bg-dialog").close();   // the close handler shows the committed background
+    commit();
+  });
+
+  // Any way of closing without Save (Cancel, the close button, Escape) restores what was committed.
+  $("bg-dialog").addEventListener("close", () => {
+    bgRequest++;   // anything still loading must not reach the board now
+    bgDraft = null;
+    showCommittedBackground(true);
+  });
+
+  // ---------- Rendering ----------
+  const statusById = (id) => board.statuses.find((s) => s.id === id);
+
+  function currentFilters() {
+    const query = $("search").value.trim().toLowerCase();
+    const priority = $("priority-filter").value;
+    return { query, priority, worker: workerFilter, active: !!(query || priority || workerFilter) };
+  }
+
+  const sameName = (a, b) => a.toLowerCase() === b.toLowerCase();
+
+  function matchesWorker(task, worker) {
+    if (!worker) return true;
+    if (worker === UNASSIGNED) return !task.assignedTo;
+    return !!task.assignedTo && sameName(task.assignedTo, worker);
+  }
+
+  // The worker a new task starts with: the one picked in the toolbar filter, if any.
+  const defaultAssignee = () => (workerFilter && workerFilter !== UNASSIGNED ? workerFilter : "");
+
+  // Toolbar filter options and the "Assigned to" suggestions, from the shared workers list.
+  function renderWorkerOptions() {
+    if (workerFilter && workerFilter !== UNASSIGNED && !workspace.workers.some((w) => sameName(w, workerFilter))) {
+      setWorkerFilter("");   // the worker was removed (here or in another tab)
+    }
+    const select = $("worker-filter");
+    select.innerHTML =
+      `<option value="">All workers</option>` +
+      workspace.workers.map((w) => `<option value="${esc(w)}">${esc(w)}</option>`).join("") +
+      `<option value="${UNASSIGNED}">Unassigned</option>`;
+    const current = workspace.workers.find((w) => workerFilter && sameName(w, workerFilter));
+    select.value = workerFilter === UNASSIGNED ? UNASSIGNED : current || "";
+  }
+
+  // ---------- "Assigned to" dropdown ----------
+  // A combobox: the arrow (or Alt+Down) lists every worker; typing filters the list and offers the typed
+  // name as a new worker. Arrow keys move, Enter picks, Escape closes the list (not the dialog).
+  const combo = { input: $("f-assigned"), toggle: $("f-assigned-toggle"), list: $("f-assigned-list"), items: [], active: -1 };
+
+  const comboOpen = () => !combo.list.hidden;
+
+  function closeCombo() {
+    combo.list.hidden = true;
+    combo.input.setAttribute("aria-expanded", "false");
+    combo.toggle.setAttribute("aria-expanded", "false");
+    combo.input.removeAttribute("aria-activedescendant");
+    combo.active = -1;
+  }
+
+  function setComboActive(index) {
+    const options = combo.list.querySelectorAll("[role=option]");
+    options.forEach((el, i) => el.classList.toggle("active", i === index));
+    combo.active = index;
+    if (index < 0) {
+      combo.input.removeAttribute("aria-activedescendant");
+      return;
+    }
+    combo.input.setAttribute("aria-activedescendant", options[index].id);
+    options[index].scrollIntoView({ block: "nearest" });
+  }
+
+  // showAll: list every worker (the arrow button); otherwise filter by what is typed.
+  function openCombo(showAll) {
+    const typed = combo.input.value.trim();
+    const query = showAll ? "" : typed.toLowerCase();
+    const workers = workspace.workers.filter((w) => !query || w.toLowerCase().includes(query));
+    const exact = typed && workspace.workers.some((w) => sameName(w, typed));
+    combo.items = workers.map((w) => ({ value: w, isNew: false }));
+    if (typed && !exact && !showAll) combo.items.push({ value: typed, isNew: true });
+
+    combo.list.innerHTML = combo.items.length
+      ? combo.items.map((item, i) => {
+          const selected = !item.isNew && sameName(item.value, typed);
+          return item.isNew
+            ? `<li id="f-assigned-opt-${i}" role="option" class="combo-option combo-new" aria-selected="false" data-index="${i}">
+                 <svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>New worker: “${esc(item.value)}”</li>`
+            : `<li id="f-assigned-opt-${i}" role="option" class="combo-option" aria-selected="${selected}" data-index="${i}">
+                 <svg class="icon" aria-hidden="true"><use href="#i-user"/></svg>${esc(item.value)}${
+                   selected ? `<svg class="icon combo-check" aria-hidden="true"><use href="#i-check"/></svg>` : ""}</li>`;
+        }).join("")
+      : `<li class="combo-empty" role="presentation">No saved workers yet. Type a name to add one.</li>`;
+
+    combo.list.hidden = false;
+    combo.input.setAttribute("aria-expanded", "true");
+    combo.toggle.setAttribute("aria-expanded", "true");
+    const current = combo.items.findIndex((item) => !item.isNew && sameName(item.value, typed));
+    setComboActive(showAll ? current : -1);
+  }
+
+  function pickCombo(index) {
+    const item = combo.items[index];
+    if (!item) return;
+    combo.input.value = item.value;
+    closeCombo();
+    combo.input.focus();
+  }
+
+  combo.input.addEventListener("input", () => openCombo(false));
+  combo.input.addEventListener("blur", () => closeCombo());
+
+  combo.toggle.addEventListener("mousedown", (e) => e.preventDefault());   // keep focus in the input
+  combo.toggle.addEventListener("click", () => {
+    if (comboOpen()) closeCombo();
+    else openCombo(true);
+    combo.input.focus();
+  });
+
+  combo.list.addEventListener("mousedown", (e) => e.preventDefault());   // a click must not blur the input first
+  combo.list.addEventListener("click", (e) => {
+    const option = e.target.closest("[role=option]");
+    if (option) pickCombo(Number(option.dataset.index));
+  });
+
+  combo.input.addEventListener("keydown", (e) => {
+    const count = combo.items.length;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (!comboOpen()) openCombo(true);
+      else if (count) setComboActive((combo.active + 1) % count);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!comboOpen()) openCombo(true);
+      else if (count) setComboActive(combo.active <= 0 ? count - 1 : combo.active - 1);
+    } else if (e.key === "Enter" && comboOpen() && combo.active >= 0) {
+      e.preventDefault();   // pick the option instead of saving the task
+      pickCombo(combo.active);
+    } else if (e.key === "Escape" && comboOpen()) {
+      e.preventDefault();   // close the list only; the dialog stays open
+      e.stopPropagation();
+      closeCombo();
+    } else if (e.key === "Tab") {
+      closeCombo();
+    }
+  });
+
+  function setWorkerFilter(value) {
+    workerFilter = value || "";
+    S.saveWorkerFilter(workerFilter);
+  }
+
+  function renderProjectName() {
+    $("project-name-text").textContent = board.name;
+    document.title = `${board.name} · Kanban`;
+  }
+
+  // "Today" -> "today", "In 3 days" -> "in 3 days"; dates such as "Nov 20" keep their capital.
+  const lowerFirst = (s) => (/^[A-Z][a-z]{2} \d/.test(s) ? s : s.charAt(0).toLowerCase() + s.slice(1));
+
+  function renderDue(task, isDone) {
+    if (!task.dueDate) return "";
+    const state = M.dueState(task.dueDate, isDone);
+    const rel = lowerFirst(M.relativeDue(task.dueDate));
+    const iconId = state === "overdue" ? "i-alert" : state === "soon" ? "i-clock" : "i-calendar";
+    const text = state === "overdue" ? `Overdue · ${rel}` : `Due ${rel}`;
+    return `<span class="due ${state}" title="Due ${esc(formatDate(task.dueDate))}">${icon(iconId, "icon-sm")}${esc(text)}</span>`;
+  }
+
+  function renderCard(task, status, columnIndex) {
+    const isDone = !!(status && status.done);
+    const due = renderDue(task, isDone);
+    const assignee = task.assignedTo ? `<span>${icon("i-user", "icon-sm")}${esc(task.assignedTo)}</span>` : "";
+    const nAtt = task.attachments.length;
+    const nCom = task.comments.length;
+    const attachments = nAtt
+      ? `<span title="${plural(nAtt, "attachment")}">${icon("i-paperclip", "icon-sm")}${nAtt}<span class="sr-only"> ${nAtt === 1 ? "attachment" : "attachments"}</span></span>`
+      : "";
+    const comments = nCom
+      ? `<span title="${plural(nCom, "comment")}">${icon("i-message", "icon-sm")}${nCom}<span class="sr-only"> ${nCom === 1 ? "comment" : "comments"}</span></span>`
+      : "";
+    // Only priorities that need attention get a badge; Low and Medium stay quiet.
+    const showPriority = task.priority === "High" || task.priority === "Critical";
+    const priority = showPriority
+      ? `<span class="priority p-${task.priority.toLowerCase()}">${icon("i-flag", "icon-sm")}${esc(task.priority)}</span>`
+      : "";
+    const last = board.statuses.length - 1;
+    const title = esc(task.title);
+
+    return `
+      <article class="card${isDone ? " is-done" : ""}" draggable="true" data-id="${esc(task.id)}">
+        ${priority}
+        <h3><button type="button" class="card-open" aria-describedby="card-help">${isDone ? icon("i-check", "icon-sm done-mark") : ""}${title}</button></h3>
+        ${due || assignee ? `<div class="card-meta">${due}${assignee}</div>` : ""}
+        ${attachments || comments ? `<div class="card-foot">${attachments}${comments}</div>` : ""}
+        <div class="card-move">
+          <button type="button" class="icon-btn" data-move-card="-1" ${columnIndex === 0 ? "disabled" : ""} aria-label="Move ${title} to the previous column">${icon("i-left")}</button>
+          <button type="button" class="icon-btn" data-move-card="1" ${columnIndex === last ? "disabled" : ""} aria-label="Move ${title} to the next column">${icon("i-right")}</button>
+        </div>
+      </article>`;
+  }
+
+  function renderColumn(status, index, shown, total, filtered, firstRun) {
+    const cards = shown.map((t) => renderCard(t, status, index)).join("");
+    const countText = filtered ? `${shown.length} of ${total}` : String(total);
+    const countLabel = filtered ? `${shown.length} of ${plural(total, "task")} shown` : plural(total, "task");
+    let empty = "No tasks";
+    if (filtered && total > 0) empty = "No matching tasks";
+    else if (firstRun) empty = "No tasks yet. Press + or use “Add task” below. Press ? for help.";
+    return `
+      <section class="column" data-status="${esc(status.id)}" aria-labelledby="col-${esc(status.id)}">
+        <header class="column-head">
+          <span class="swatch" style="background:${esc(status.color)}"></span>
+          <h2 id="col-${esc(status.id)}">${esc(status.name)}</h2>
+          ${status.done ? `<span class="done-tag">${icon("i-check", "icon-sm")}Completed</span>` : ""}
+          <span class="count" aria-label="${countLabel}">${countText}</span>
+        </header>
+        <div class="column-body">
+          ${cards || `<p class="empty">${empty}</p>`}
+        </div>
+        <button type="button" class="add-in-column" data-add-status="${esc(status.id)}">${icon("i-plus", "icon-sm")}Add task<span class="sr-only"> to ${esc(status.name)}</span></button>
+      </section>`;
+  }
+
+  function render() {
+    renderProjectName();
+    showCommittedBackground();
+    // Fresh start: invite the user to import a shared board.
+    const only = workspace.projects[0];
+    $("welcome").hidden = !(workspace.projects.length === 1 && !only.tasks.length && !workspace.workers.length &&
+      only.name === M.DEFAULT_PROJECT_NAME);
+    renderWorkerOptions();
+    const { query, priority, worker, active } = currentFilters();
+    const matches = (t) =>
+      (!priority || t.priority === priority) &&
+      matchesWorker(t, worker) &&
+      (!query || [t.title, t.description, t.assignedTo].some((v) => v.toLowerCase().includes(query)));
+
+    const firstRun = board.tasks.length === 0;
+    $("board").innerHTML = board.statuses
+      .map((s, i) => {
+        const all = board.tasks.filter((t) => t.status === s.id);
+        return renderColumn(s, i, all.filter(matches), all.length, active, firstRun && i === 0);
+      })
+      .join("");
+
+    $("btn-clear-filters").classList.toggle("hidden", !active);
+    $("btn-add-task").title = `New task in ${board.statuses[0].name} (shortcut: +)`;
+    updateBoardHint();
+  }
+
+  // ---------- Horizontal scroll hint ----------
+  // Shows a fade and a small button on each side when columns are hidden there.
+  function updateBoardHint() {
+    const el = $("board");
+    const hiddenRight = el.scrollWidth - el.clientWidth - el.scrollLeft;
+    const hiddenLeft = el.scrollLeft;
+    const wrap = $("board-wrap");
+    wrap.classList.toggle("has-more-right", hiddenRight > 4);
+    wrap.classList.toggle("has-more-left", hiddenLeft > 4);
+  }
+
+  // One column plus the gap between columns, read from the layout.
+  function columnStep() {
+    const el = $("board");
+    const column = el.querySelector(".column");
+    const gap = parseFloat(getComputedStyle(el).columnGap) || 0;
+    return column ? column.getBoundingClientRect().width + gap : 300;
+  }
+
+  $("board").addEventListener("scroll", updateBoardHint, { passive: true });
+  window.addEventListener("resize", updateBoardHint);
+  $("board-more").addEventListener("click", () => $("board").scrollBy({ left: columnStep(), behavior: "smooth" }));
+  $("board-more-left").addEventListener("click", () => $("board").scrollBy({ left: -columnStep(), behavior: "smooth" }));
+
+  // ---------- Filters ----------
+  $("search").addEventListener("input", render);
+  $("priority-filter").addEventListener("change", render);
+  $("worker-filter").addEventListener("change", () => {
+    setWorkerFilter($("worker-filter").value);
+    render();
+  });
+  $("btn-clear-filters").addEventListener("click", () => {
+    $("search").value = "";
+    $("priority-filter").value = "";
+    setWorkerFilter("");
+    render();
+    $("search").focus();
+  });
+
+  // ---------- Task dialog ----------
+  function renderDraftLists() {
+    $("f-attachments").innerHTML =
+      draft.attachments
+        .map((url, i) => `
+          <div class="list-row">
+            ${isHttpUrl(url)
+              ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a>`
+              : `<span class="bad-url">${esc(url)} (not a valid http/https URL)</span>`}
+            <button type="button" class="icon-btn" data-remove-attachment="${i}" aria-label="Remove attachment ${esc(url)}">${icon("i-x")}</button>
+          </div>`)
+        .join("") || '<p class="empty">No attachments</p>';
+
+    $("f-comments").innerHTML =
+      draft.comments
+        .map((c, i) => `
+          <div class="comment">
+            <div class="comment-head">
+              <time datetime="${esc(c.createdAt)}">${esc(formatDateTime(c.createdAt))}</time>
+              <button type="button" class="link-btn" data-remove-comment="${i}" aria-label="Delete comment from ${esc(formatDateTime(c.createdAt))}">Delete</button>
+            </div>
+            <p>${esc(c.text)}</p>
+          </div>`)
+        .join("") || '<p class="empty">No comments yet</p>';
+  }
+
+  // Everything the user can change in the task dialog, as one comparable string.
+  function taskFormState() {
+    if (!draft) return "";
+    return JSON.stringify([
+      $("f-title").value, $("f-description").value, $("f-assigned").value, $("f-due").value,
+      $("f-priority").value, $("f-status").value, draft.attachments, draft.comments,
+      $("f-attachment-input").value.trim(), $("f-comment-input").value.trim(),
+    ]);
+  }
+
+  function openTaskDialog(taskId, statusId) {
+    const existing = taskId ? board.tasks.find((t) => t.id === taskId) : null;
+    draft = existing
+      ? clone(existing)
+      : {
+          id: null,
+          title: "",
+          description: "",
+          assignedTo: defaultAssignee(),
+          dueDate: "",
+          priority: "Medium",
+          attachments: [],
+          comments: [],
+          status: statusId || board.statuses[0].id,
+        };
+
+    $("task-dialog-title").textContent = existing ? "Edit task" : "New task";
+    $("btn-delete-task").classList.toggle("hidden", !existing);
+    $("f-title").value = draft.title;
+    $("f-description").value = draft.description;
+    $("f-assigned").value = draft.assignedTo;
+    closeCombo();
+    $("f-due").value = draft.dueDate;
+    $("f-priority").value = draft.priority;
+    $("f-status").innerHTML = board.statuses
+      .map((s) => `<option value="${esc(s.id)}">${esc(s.name)}</option>`)
+      .join("");
+    $("f-status").value = draft.status;
+    $("f-attachment-input").value = "";
+    $("f-comment-input").value = "";
+    setFieldError("f-title", "f-title-error", "");
+    setFieldError("f-attachment-input", "f-attachment-error", "");
+    renderDraftLists();
+
+    $("task-dialog").showModal();
+    $("f-title").focus();
+    draftSnapshot = taskFormState();
+  }
+
+  guardClose($("task-dialog"), () => taskFormState() !== draftSnapshot,
+    "Your unsaved changes to this task will be lost.");
+
+  $("f-title").addEventListener("input", () => setFieldError("f-title", "f-title-error", ""));
+  $("f-attachment-input").addEventListener("input", () => setFieldError("f-attachment-input", "f-attachment-error", ""));
+
+  $("task-form").addEventListener("click", (e) => {
+    const rmAttachment = e.target.closest("[data-remove-attachment]");
+    if (rmAttachment) {
+      draft.attachments.splice(Number(rmAttachment.dataset.removeAttachment), 1);
+      renderDraftLists();
+      $("f-attachment-input").focus();
+      return;
+    }
+    const rmComment = e.target.closest("[data-remove-comment]");
+    if (rmComment) {
+      draft.comments.splice(Number(rmComment.dataset.removeComment), 1);
+      renderDraftLists();
+      $("f-comment-input").focus();
+    }
+  });
+
+  const ATTACHMENT_ERROR = "Attachment URLs must start with http:// or https://";
+
+  $("btn-add-attachment").addEventListener("click", () => {
+    const input = $("f-attachment-input");
+    const url = input.value.trim();
+    if (!url) return;
+    if (!isHttpUrl(url)) {
+      setFieldError("f-attachment-input", "f-attachment-error", ATTACHMENT_ERROR);
+      input.focus();
+      return;
+    }
+    draft.attachments.push(url);
+    input.value = "";
+    renderDraftLists();
+    $("f-attachments").scrollTop = $("f-attachments").scrollHeight;
+  });
+
+  $("f-attachment-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();   // do not submit the whole task form
+      $("btn-add-attachment").click();
+    }
+  });
+
+  $("btn-add-comment").addEventListener("click", () => {
+    const input = $("f-comment-input");
+    const text = input.value.trim();
+    if (!text) return;
+    draft.comments.push({ id: uid(), text, createdAt: new Date().toISOString() });
+    input.value = "";
+    renderDraftLists();
+    $("f-comments").scrollTop = $("f-comments").scrollHeight;   // show the new comment (the list scrolls when long)
+  });
+
+  $("task-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const title = $("f-title").value.trim();
+    if (!title) {
+      setFieldError("f-title", "f-title-error", "Enter a title for the task.");
+      $("f-title").focus();
+      return;
+    }
+
+    // Include URL/comment text typed but not yet added with the buttons.
+    const pendingUrl = $("f-attachment-input").value.trim();
+    if (pendingUrl && !isHttpUrl(pendingUrl)) {
+      setFieldError("f-attachment-input", "f-attachment-error", ATTACHMENT_ERROR);
+      $("f-attachment-input").focus();
+      return;
+    }
+    const pendingComment = $("f-comment-input").value.trim();
+
+    // A name typed in "Assigned to" joins the workers list; a known name keeps its saved spelling.
+    const assignedTo = M.addWorker(workspace.workers, $("f-assigned").value);
+
+    const now = new Date().toISOString();
+    const fields = {
+      title,
+      description: $("f-description").value.trim(),
+      assignedTo,
+      dueDate: $("f-due").value,
+      priority: $("f-priority").value,
+      attachments: [...draft.attachments, ...(pendingUrl ? [pendingUrl] : [])],
+      comments: [
+        ...draft.comments,
+        ...(pendingComment ? [{ id: uid(), text: pendingComment, createdAt: now }] : []),
+      ],
+      updatedAt: now,
+    };
+    const statusId = $("f-status").value;
+
+    let task = draft.id ? board.tasks.find((t) => t.id === draft.id) : null;
+    if (task) {
+      Object.assign(task, fields);
+      if (task.status !== statusId) M.moveTask(board, task.id, statusId);   // goes to the end of its new column
+    } else {
+      task = { id: uid(), createdAt: now, status: statusId, ...fields };
+      board.tasks.push(task);
+    }
+
+    $("task-dialog").close();
+    const saved = commit();
+    focusCard(task.id);   // the card was re-rendered; put focus back on it
+    if (saved) toast("Task saved.");
+  });
+
+  // Deleting is immediate and can be undone from the toast (or with Ctrl+Z).
+  $("btn-delete-task").addEventListener("click", () => {
+    if (!draft || !draft.id) return;
+    const index = board.tasks.findIndex((t) => t.id === draft.id);
+    if (index < 0) return;
+    const project = board;
+    const [removed] = project.tasks.splice(index, 1);
+    $("task-dialog").close();
+    if (!commit()) return;
+    toast(`Deleted "${removed.title}".`, "info", {
+      label: "Undo",
+      run: () => {
+        if (!projectById(project.id)) return;
+        if (board !== project) setActiveProject(project.id);
+        if (!statusById(removed.status)) removed.status = board.statuses[0].id;
+        board.tasks.splice(Math.min(index, board.tasks.length), 0, removed);
+        if (commit()) {
+          focusCard(removed.id);
+          toast("Task restored.");
+        }
+      },
+    });
+  });
+
+  // ---------- Status dialog ----------
+  const countTasks = (statusId) => (statusId ? board.tasks.filter((t) => t.status === statusId).length : 0);
+
+  // Labels name the status so screen reader users can tell rows apart.
+  function labelStatusRow(row, name) {
+    const n = name || "new status";
+    row.querySelector(".s-color").setAttribute("aria-label", `Color for ${n}`);
+    row.querySelector(".s-name").setAttribute("aria-label", `Name of ${n}`);
+    row.querySelector(".s-done-input").setAttribute("aria-label", `${n} is a completed status`);
+    row.querySelector("[data-move='-1']").setAttribute("aria-label", `Move ${n} up`);
+    row.querySelector("[data-move='1']").setAttribute("aria-label", `Move ${n} down`);
+    row.querySelector("[data-delete-status]").setAttribute("aria-label", `Delete ${n}`);
+  }
+
+  function renderStatusRows() {
+    const last = statusDraft.length - 1;
+    $("status-list").innerHTML = statusDraft
+      .map((s, i) => `
+        <div class="status-row" data-index="${i}">
+          <input type="color" class="s-color" value="${esc(s.color)}">
+          <input type="text" class="s-name" value="${esc(s.name)}" maxlength="40" placeholder="Status name">
+          <label class="s-done"><input type="checkbox" class="s-done-input" ${s.done ? "checked" : ""}> Completed</label>
+          <span class="s-count">${plural(countTasks(s.id), "task")}</span>
+          <button type="button" class="icon-btn" data-move="-1" ${i === 0 ? "disabled" : ""}>${icon("i-up")}</button>
+          <button type="button" class="icon-btn" data-move="1" ${i === last ? "disabled" : ""}>${icon("i-down")}</button>
+          <button type="button" class="icon-btn text-danger" data-delete-status ${statusDraft.length === 1 ? "disabled" : ""}>${icon("i-trash")}</button>
+        </div>`)
+      .join("");
+    document.querySelectorAll("#status-list .status-row").forEach((row) =>
+      labelStatusRow(row, statusDraft[Number(row.dataset.index)].name));
+  }
+
+  // Copies what is typed in the rows back into statusDraft before re-rendering.
+  function readStatusRows() {
+    document.querySelectorAll("#status-list .status-row").forEach((row) => {
+      const s = statusDraft[Number(row.dataset.index)];
+      s.name = row.querySelector(".s-name").value.trim();
+      s.color = row.querySelector(".s-color").value;
+      s.done = row.querySelector(".s-done-input").checked;
+    });
+  }
+
+  function openStatusDialog() {
+    statusDraft = board.statuses.map((s) => ({ ...s }));
+    $("status-error").textContent = "";
+    renderStatusRows();
+    $("status-dialog").showModal();
+    statusSnapshot = JSON.stringify(statusDraft);
+  }
+
+  guardClose($("status-dialog"), () => {
+    readStatusRows();
+    return JSON.stringify(statusDraft) !== statusSnapshot;
+  }, "Your unsaved changes to the statuses will be lost.");
+
+  $("btn-statuses").addEventListener("click", openStatusDialog);
+
+  $("status-list").addEventListener("input", (e) => {
+    if (!e.target.matches(".s-name")) return;
+    labelStatusRow(e.target.closest(".status-row"), e.target.value.trim());
+    $("status-error").textContent = "";
+  });
+
+  $("btn-add-status").addEventListener("click", () => {
+    readStatusRows();
+    statusDraft.push({ id: null, name: "", color: PALETTE[statusDraft.length % PALETTE.length], done: false });
+    renderStatusRows();
+    const inputs = $("status-list").querySelectorAll(".s-name");
+    inputs[inputs.length - 1].focus();
+  });
+
+  $("status-list").addEventListener("click", (e) => {
+    const row = e.target.closest(".status-row");
+    if (!row) return;
+    const index = Number(row.dataset.index);
+    const moveBtn = e.target.closest("[data-move]");
+    const deleteBtn = e.target.closest("[data-delete-status]");
+    if (!moveBtn && !deleteBtn) return;
+
+    readStatusRows();
+    let focusIndex = index;
+    if (moveBtn) {
+      const target = index + Number(moveBtn.dataset.move);
+      if (target < 0 || target >= statusDraft.length) return;
+      [statusDraft[index], statusDraft[target]] = [statusDraft[target], statusDraft[index]];
+      focusIndex = target;
+    } else {
+      statusDraft.splice(index, 1);
+      focusIndex = Math.min(index, statusDraft.length - 1);
+    }
+    renderStatusRows();
+    // Keep keyboard focus in the list after the rows are rebuilt.
+    const rows = $("status-list").querySelectorAll(".status-row");
+    const sel = moveBtn ? `[data-move="${moveBtn.dataset.move}"]` : ".s-name";
+    const target = rows[focusIndex] && rows[focusIndex].querySelector(sel);
+    if (target && !target.disabled) target.focus();
+    else if (rows[focusIndex]) rows[focusIndex].querySelector(".s-name").focus();
+  });
+
+  $("status-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    readStatusRows();
+    const showError = (message) => { $("status-error").textContent = message; };
+
+    const names = new Set();
+    for (const s of statusDraft) {
+      if (!s.name) return showError("Every status needs a name.");
+      const key = s.name.toLowerCase();
+      if (names.has(key)) return showError(`Two statuses are named "${s.name}". Use different names.`);
+      names.add(key);
+    }
+    if (!statusDraft.length) return;
+
+    // Keep existing ids so tasks stay linked when a status is renamed.
+    // New statuses must not reuse the id of a deleted status, or old tasks would re-link to them.
+    const usedIds = new Set();
+    const oldIds = new Set(board.statuses.map((s) => s.id));
+    const next = statusDraft.map((s) => {
+      const id = s.id
+        ? uniqueId(s.id, usedIds)
+        : uniqueId(slugify(s.name), new Set([...usedIds, ...oldIds]));
+      usedIds.add(id);
+      return { id, name: s.name, color: s.color, done: s.done };
+    });
+
+    const nextIds = new Set(next.map((s) => s.id));
+    const removed = board.statuses.filter((s) => !nextIds.has(s.id));
+    const removedIds = new Set(removed.map((s) => s.id));
+    const affected = board.tasks.filter((t) => removedIds.has(t.status)).length;
+    const fallback = next[0];
+
+    if (affected) {
+      const withTasks = removed.filter((s) => countTasks(s.id));
+      const list = withTasks.map((s) => `"${s.name}"`).join(", ");
+      const confirmed = await confirmAction({
+        title: removed.length === 1 ? "Delete status?" : "Delete statuses?",
+        message: `${list} ${withTasks.length === 1 ? "has" : "have"} ${plural(affected, "task")}. ` +
+          `${affected === 1 ? "It" : "They"} will move to "${fallback.name}".`,
+        ok: `Delete and move ${plural(affected, "task")}`,
+      });
+      if (!confirmed) return;
+    }
+
+    for (const task of board.tasks) {
+      if (removedIds.has(task.status)) task.status = fallback.id;
+    }
+    board.statuses = next;
+    $("status-dialog").close();
+    if (!commit()) return;
+    toast(affected ? `Statuses updated. ${plural(affected, "task")} moved to "${fallback.name}".` : "Statuses updated.");
+  });
+
+  // ---------- Import / export ----------
+  // Files hold a whole workspace (format 2) or a single board (format 1, imported as one project).
+  function downloadJson(payload, filename) {
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  const taskTotal = (projects) => projects.reduce((n, p) => n + p.tasks.length, 0);
+
+  $("btn-import").addEventListener("click", () => $("file-input").click());
+  $("btn-welcome-import").addEventListener("click", () => $("file-input").click());
+
+  $("file-input").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    e.target.value = ""; // allow picking the same file again later
+    if (!file) return;
+
+    let incoming;
+    let notice = "";
+    try {
+      const text = await file.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error("The file is not valid JSON.");
+      }
+      // A single-board file becomes one project named after the file.
+      const baseName = file.name.replace(/\.json$/i, "").trim() || "Imported project";
+      incoming = M.parseWorkspace(data, baseName);
+      notice = M.versionNotice(data);
+    } catch (err) {
+      toast(`Import failed: ${err.message}`, "error");
+      return;
+    }
+
+    pendingImport = incoming;
+    const n = incoming.projects.length;
+    $("import-summary").textContent =
+      `"${file.name}" contains ${plural(n, "project")} with ${plural(taskTotal(incoming.projects), "task")}. ` +
+      `Choose the projects to import.`;
+    $("import-version").hidden = !notice;
+    $("import-version").lastChild.textContent = notice;
+    renderImportList();
+    $("import-dialog").showModal();
+  });
+
+  function selectedImportIndexes() {
+    return [...document.querySelectorAll("#import-projects input:checked")].map((el) => Number(el.dataset.index));
+  }
+
+  // A project in the file that is already here (the same project, shared earlier): its local copy.
+  const localCopy = (p) => workspace.projects.find((q) => q.id === p.id);
+
+  // One checkbox per project in the file, with the name it would get when added.
+  function renderImportList() {
+    const existing = workspace.projects.map((p) => p.name);
+    $("import-projects").innerHTML = pendingImport.projects
+      .map((p, i) => {
+        const finalName = M.uniqueName(p.name, existing);
+        const local = localCopy(p);
+        const renamed = local
+          ? `<span class="hint">Already here as “${esc(local.name)}”: Update overwrites it</span>`
+          : finalName !== p.name
+            ? `<span class="hint">Added as “${esc(finalName)}”, because “${esc(p.name)}” already exists</span>` : "";
+        return `
+          <label class="check-row">
+            <input type="checkbox" data-index="${i}" checked>
+            <span class="check-text"><strong>${esc(p.name)}</strong> <span class="hint">${plural(p.tasks.length, "task")}</span>${renamed}</span>
+          </label>`;
+      })
+      .join("");
+    updateImportButtons();
+  }
+
+  // When the file holds projects that are already here, Update is the main action and Add makes copies.
+  function updateImportButtons() {
+    const count = selectedImportIndexes().length;
+    const canUpdate = pendingImport.projects.some(localCopy);
+    $("btn-import-add").disabled = count === 0;
+    $("btn-import-replace").disabled = count === 0;
+    $("btn-import-update").disabled = count === 0;
+    $("btn-import-update").hidden = !canUpdate;
+    $("import-help-update").hidden = !canUpdate;
+    $("btn-import-add").classList.toggle("primary", !canUpdate);
+    const addLabel = canUpdate ? "Add as new" : "Add selected";
+    $("import-help-add").textContent = addLabel;
+    $("btn-import-add").lastChild.textContent = count === pendingImport.projects.length || count === 0
+      ? addLabel : `Add ${plural(count, "project")}`;
+  }
+
+  $("import-projects").addEventListener("change", updateImportButtons);
+
+  $("import-dialog").addEventListener("close", () => { pendingImport = null; });
+
+  function applyImport(mode) {
+    if (!pendingImport) return;
+    const incoming = pendingImport;
+    const chosen = selectedImportIndexes().map((i) => incoming.projects[i]);
+    if (!chosen.length) return;
+    $("import-dialog").close();
+
+    const before = clone(workspace);
+    const openId = board.id;
+    // On a fresh start (only the empty project the app begins with) the file's projects take its place.
+    const fresh = workspace.projects.length === 1 && !workspace.projects[0].tasks.length &&
+      workspace.projects[0].name === M.DEFAULT_PROJECT_NAME && !workspace.projects[0].background;
+    if (fresh && mode === "add") mode = "replace";
+    const updatedIds = new Set(mode === "update" ? chosen.filter(localCopy).map((p) => p.id) : []);
+    const added = M.addProjects(workspace, chosen, mode, incoming.workers, incoming.background);
+    // Open the file's open project on a replace, the imported project when there is exactly one new one,
+    // and otherwise stay where the user is.
+    const newOnes = added.filter((p) => !updatedIds.has(p.id));
+    if (mode === "replace") setActiveProject(added.some((p) => p.id === incoming.activeProjectId) ? incoming.activeProjectId : added[0].id);
+    else if (newOnes.length === 1 && !updatedIds.size) setActiveProject(newOnes[0].id);
+    else setActiveProject(openId);
+    if (!commit()) return;
+
+    const what = (list) => (list.length === 1 ? `"${list[0].name}"` : plural(list.length, "project"));
+    const updatedOnes = added.filter((p) => updatedIds.has(p.id));
+    let message;
+    if (mode === "update") {
+      message = `Updated ${what(updatedOnes)}` + (newOnes.length ? ` and added ${what(newOnes)}.` : ".");
+    } else if (mode === "add") {
+      message = `Imported ${what(added)}.`;
+    } else {
+      message = fresh ? `Imported ${what(added)}.` : `Replaced all projects with ${what(added)}.`;
+    }
+    toast(
+      message,
+      "info",
+      {
+        label: "Undo",
+        run: () => {
+          workspace = before;
+          setActiveProject(openId);
+          if (commit()) toast("Import undone.");
+        },
+      }
+    );
+  }
+
+  $("btn-import-add").addEventListener("click", () => applyImport("add"));
+  $("btn-import-replace").addEventListener("click", () => applyImport("replace"));
+  $("btn-import-update").addEventListener("click", () => applyImport("update"));
+
+  // Export: every project and the workers list in one file.
+  $("btn-export").addEventListener("click", () => {
+    downloadJson(M.serializeWorkspace(workspace, { exportedAt: new Date().toISOString() }), `kanban-${M.today()}.json`);
+    toast(`Exported ${plural(workspace.projects.length, "project")} with ${plural(taskTotal(workspace.projects), "task")}.`);
+  });
+
+  // A file with just one project (used as a backup before starting a new project).
+  function exportProject(project) {
+    const single = { activeProjectId: project.id, workers: workspace.workers, background: workspace.background, projects: [project] };
+    downloadJson(
+      M.serializeWorkspace(single, { exportedAt: new Date().toISOString() }),
+      `kanban-${M.slugify(project.name)}-${M.today()}.json`
+    );
+  }
+
+  // ---------- Projects: rename, switch, create ----------
+  let renaming = false;
+
+  function startRename() {
+    renaming = true;
+    const input = $("project-name-input");
+    input.value = board.name;
+    document.querySelector(".project-title").classList.add("hidden");
+    input.classList.remove("hidden");
+    input.focus();
+    input.select();
+  }
+
+  // save: keep the typed name. refocus: return focus to the name (keyboard finish, not a click elsewhere).
+  function finishRename(save, refocus) {
+    if (!renaming) return;
+    renaming = false;
+    const input = $("project-name-input");
+    const name = input.value.trim();
+    input.classList.add("hidden");
+    document.querySelector(".project-title").classList.remove("hidden");
+    if (refocus) $("project-name").focus();
+    if (!save || !name || name === board.name) return;
+    if (workspace.projects.some((p) => p !== board && sameName(p.name, name))) {
+      toast(`Another project is already named "${name}".`, "error");
+      return;
+    }
+    board.name = name;
+    if (commit()) toast(`Project renamed to "${name}".`);
+  }
+
+  $("project-name").addEventListener("click", startRename);
+  $("project-name-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      finishRename(true, true);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      finishRename(false, true);
+    }
+  });
+  $("project-name-input").addEventListener("blur", () => finishRename(true, false));
+
+  function renderProjectsList() {
+    $("projects-list").innerHTML = workspace.projects
+      .map((p) => {
+        const current = p === board;
+        return `
+          <button type="button" data-project-id="${esc(p.id)}"${current ? ' aria-current="true"' : ""}>
+            ${current ? icon("i-check") : '<span class="icon" aria-hidden="true"></span>'}
+            <span class="pl-name">${esc(p.name)}</span>
+            <span class="pl-count" title="${plural(p.tasks.length, "task")}">${p.tasks.length}<span class="sr-only"> tasks</span></span>
+          </button>`;
+      })
+      .join("") +
+      `<button type="button" class="pl-manage" data-manage-projects>${icon("i-folder")}Manage projects…</button>`;
+  }
+
+  $("projects-list").addEventListener("click", (e) => {
+    if (e.target.closest("[data-manage-projects]")) {
+      openProjectsDialog();
+      return;
+    }
+    const btn = e.target.closest("[data-project-id]");
+    if (!btn || btn.dataset.projectId === board.id) return;
+    setActiveProject(btn.dataset.projectId);
+    if (commit()) toast(`Opened "${board.name}".`);
+  });
+
+  $("btn-new-project").addEventListener("click", () => {
+    $("np-name").value = "";
+    setFieldError("np-name", "np-name-error", "");
+    $("np-current").textContent = board.name;
+    $("np-backup").checked = true;
+    $("project-dialog").showModal();
+    $("np-name").focus();
+  });
+
+  $("np-name").addEventListener("input", () => setFieldError("np-name", "np-name-error", ""));
+
+  $("project-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const name = $("np-name").value.trim();
+    if (!name) {
+      setFieldError("np-name", "np-name-error", "Enter a name for the new project.");
+      $("np-name").focus();
+      return;
+    }
+    if (workspace.projects.some((p) => sameName(p.name, name))) {
+      setFieldError("np-name", "np-name-error", `A project named "${name}" already exists.`);
+      $("np-name").focus();
+      return;
+    }
+    if ($("np-backup").checked) exportProject(board);
+    const project = M.newProject(name);
+    workspace.projects.push(project);
+    setActiveProject(project.id);
+    $("project-dialog").close();
+    if (commit()) toast(`Created project "${name}".`);
+  });
+
+  // ---------- Manage projects ----------
+  let projectsDraft = [];   // [{ id, name, tasks }] in display order
+  let projectsSnapshot = "";
+
+  function renderProjectRows() {
+    const single = projectsDraft.length === 1;
+    $("projects-rows").innerHTML = projectsDraft
+      .map((p, i) => `
+        <div class="edit-row" data-index="${i}">
+          <input type="text" class="p-name" value="${esc(p.name)}" maxlength="80" aria-label="Name of project ${esc(p.name)}">
+          <span class="s-count">${plural(p.tasks, "task")}${p.id === board.id ? " · open" : ""}</span>
+          <button type="button" class="icon-btn text-danger" data-delete-project ${single ? "disabled title=\"The last project cannot be deleted\"" : ""}
+            aria-label="Delete project ${esc(p.name)}">${icon("i-trash")}</button>
+        </div>`)
+      .join("");
+  }
+
+  function readProjectRows() {
+    document.querySelectorAll("#projects-rows .edit-row").forEach((row) => {
+      projectsDraft[Number(row.dataset.index)].name = row.querySelector(".p-name").value.trim();
+    });
+  }
+
+  function openProjectsDialog() {
+    projectsDraft = workspace.projects.map((p) => ({ id: p.id, name: p.name, tasks: p.tasks.length }));
+    $("projects-error").textContent = "";
+    renderProjectRows();
+    $("projects-dialog").showModal();
+    projectsSnapshot = JSON.stringify(projectsDraft);
+  }
+
+  guardClose($("projects-dialog"), () => {
+    readProjectRows();
+    return JSON.stringify(projectsDraft) !== projectsSnapshot;
+  }, "Your unsaved changes to the projects will be lost.");
+
+  $("btn-manage-projects").addEventListener("click", openProjectsDialog);
+
+  $("projects-rows").addEventListener("input", () => { $("projects-error").textContent = ""; });
+
+  $("projects-rows").addEventListener("click", (e) => {
+    const del = e.target.closest("[data-delete-project]");
+    if (!del) return;
+    readProjectRows();
+    const index = Number(del.closest(".edit-row").dataset.index);
+    projectsDraft.splice(index, 1);
+    renderProjectRows();
+    const rows = $("projects-rows").querySelectorAll(".p-name");
+    if (rows.length) rows[Math.min(index, rows.length - 1)].focus();
+  });
+
+  $("projects-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    readProjectRows();
+    const showError = (message) => { $("projects-error").textContent = message; };
+    const names = [];
+    for (const p of projectsDraft) {
+      if (!p.name) return showError("Every project needs a name.");
+      if (names.some((n) => sameName(n, p.name))) return showError(`Two projects are named "${p.name}". Use different names.`);
+      names.push(p.name);
+    }
+
+    const keep = new Set(projectsDraft.map((p) => p.id));
+    const removed = workspace.projects.filter((p) => !keep.has(p.id));
+    if (removed.length) {
+      const list = removed.map((p) => `"${p.name}"`).join(", ");
+      const confirmed = await confirmAction({
+        title: removed.length === 1 ? "Delete project?" : "Delete projects?",
+        message: `${list} will be deleted with ${plural(taskTotal(removed), "task")}. You can undo this right after.`,
+        ok: removed.length === 1 ? "Delete project" : `Delete ${removed.length} projects`,
+      });
+      if (!confirmed) return;
+    }
+
+    const before = clone(workspace);
+    const openId = board.id;
+    workspace.projects = projectsDraft.map((d) => Object.assign(projectById(d.id), { name: d.name }));
+    setActiveProject(keep.has(openId) ? openId : workspace.projects[0].id);
+    $("projects-dialog").close();
+    if (!commit()) return;
+
+    if (!removed.length) {
+      toast("Projects updated.");
+      return;
+    }
+    toast(removed.length === 1 ? `Deleted project "${removed[0].name}".` : `Deleted ${removed.length} projects.`, "info", {
+      label: "Undo",
+      run: () => {
+        workspace = before;
+        setActiveProject(openId);
+        if (commit()) toast("Projects restored.");
+      },
+    });
+  });
+
+  // ---------- Manage workers ----------
+  let workersDraft = [];    // [{ original, name }]; original is null for a new row
+  let workersSnapshot = "";
+
+  function renderWorkerRows() {
+    $("workers-rows").innerHTML = workersDraft
+      .map((w, i) => {
+        const label = w.name || "new worker";
+        const count = w.original ? M.countAssigned(workspace, w.original) : 0;
+        return `
+          <div class="edit-row" data-index="${i}">
+            <input type="text" class="w-name" value="${esc(w.name)}" maxlength="100" placeholder="Worker name" aria-label="Name of ${esc(label)}">
+            <span class="s-count">${plural(count, "task")}</span>
+            <button type="button" class="icon-btn text-danger" data-delete-worker aria-label="Remove ${esc(label)}">${icon("i-trash")}</button>
+          </div>`;
+      })
+      .join("");
+    $("workers-empty").classList.toggle("hidden", workersDraft.length > 0);
+  }
+
+  function readWorkerRows() {
+    document.querySelectorAll("#workers-rows .edit-row").forEach((row) => {
+      workersDraft[Number(row.dataset.index)].name = row.querySelector(".w-name").value.trim();
+    });
+  }
+
+  function openWorkersDialog() {
+    workersDraft = workspace.workers.map((w) => ({ original: w, name: w }));
+    $("workers-error").textContent = "";
+    renderWorkerRows();
+    $("workers-dialog").showModal();
+    workersSnapshot = JSON.stringify(workersDraft);
+  }
+
+  guardClose($("workers-dialog"), () => {
+    readWorkerRows();
+    return JSON.stringify(workersDraft) !== workersSnapshot;
+  }, "Your unsaved changes to the workers will be lost.");
+
+  $("btn-workers").addEventListener("click", openWorkersDialog);
+
+  $("workers-rows").addEventListener("input", () => { $("workers-error").textContent = ""; });
+
+  $("btn-add-worker").addEventListener("click", () => {
+    readWorkerRows();
+    workersDraft.push({ original: null, name: "" });
+    renderWorkerRows();
+    const inputs = $("workers-rows").querySelectorAll(".w-name");
+    inputs[inputs.length - 1].focus();
+  });
+
+  $("workers-rows").addEventListener("click", (e) => {
+    const del = e.target.closest("[data-delete-worker]");
+    if (!del) return;
+    readWorkerRows();
+    const index = Number(del.closest(".edit-row").dataset.index);
+    workersDraft.splice(index, 1);
+    renderWorkerRows();
+    const inputs = $("workers-rows").querySelectorAll(".w-name");
+    if (inputs.length) inputs[Math.min(index, inputs.length - 1)].focus();
+    else $("btn-add-worker").focus();
+  });
+
+  $("workers-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    readWorkerRows();
+    const rows = workersDraft.filter((w) => w.name || w.original);   // blank new rows are ignored
+    const names = [];
+    for (const w of rows) {
+      if (!w.name) {
+        $("workers-error").textContent = `Enter a name for "${w.original}", or remove the worker.`;
+        return;
+      }
+      if (names.some((n) => sameName(n, w.name))) {
+        $("workers-error").textContent = `"${w.name}" is listed twice.`;
+        return;
+      }
+      names.push(w.name);
+    }
+
+    let changedTasks = 0;
+    for (const w of rows) {
+      if (w.original && w.name !== w.original) {
+        changedTasks += M.renameWorker(workspace, w.original, w.name);
+        if (workerFilter && sameName(workerFilter, w.original)) setWorkerFilter(w.name);
+      }
+    }
+    workspace.workers = M.normalizeWorkers(names);
+    $("workers-dialog").close();
+    if (commit()) {
+      toast(changedTasks ? `Workers updated. ${plural(changedTasks, "task")} now show the new names.` : "Workers updated.");
+    }
+  });
+
+  // ---------- Moving cards ----------
+  function focusCard(taskId) {
+    const el = document.querySelector(`.card[data-id="${CSS.escape(taskId)}"] .card-open`);
+    if (el) el.focus();
+  }
+
+  // Moves a task to a column (before another card, or to the end). Returns true when something changed.
+  function moveTaskTo(taskId, statusId, beforeId = null) {
+    const task = board.tasks.find((t) => t.id === taskId);
+    if (!task) return false;
+    const changedColumn = task.status !== statusId;
+    if (!M.moveTask(board, taskId, statusId, beforeId)) return false;
+    task.updatedAt = new Date().toISOString();
+    const saved = commit();
+    if (saved && changedColumn) toast(`Moved to "${statusById(statusId).name}".`);
+    return true;
+  }
+
+  // Moves a task one column left (-1) or right (+1) and keeps focus on it.
+  function moveTaskByOffset(taskId, offset) {
+    const task = board.tasks.find((t) => t.id === taskId);
+    if (!task) return;
+    const index = board.statuses.findIndex((s) => s.id === task.status);
+    const target = board.statuses[index + offset];
+    if (!target) {
+      toast(offset < 0 ? "Already in the first column." : "Already in the last column.");
+      return;
+    }
+    moveTaskTo(taskId, target.id);
+    focusCard(taskId);
+  }
+
+  // Moves a task up (-1) or down (+1) among the cards shown in its column.
+  function reorderByOffset(card, offset) {
+    const column = card.closest(".column");
+    const ids = [...column.querySelectorAll(".card")].map((c) => c.dataset.id);
+    const taskId = card.dataset.id;
+    if (!M.reorderTask(board, taskId, offset, ids)) {
+      toast(offset < 0 ? "Already at the top." : "Already at the bottom.");
+      return;
+    }
+    commit();
+    focusCard(taskId);
+  }
+
+  // ---------- Drag and drop ----------
+  // A line shows where the card will land; dropping places it there (also within the same column).
+  const dropIndicator = document.createElement("div");
+  dropIndicator.className = "drop-indicator";
+  dropIndicator.setAttribute("aria-hidden", "true");
+
+  function clearDropState() {
+    dropIndicator.remove();
+    document.querySelectorAll(".dragging, .drop-target").forEach((el) =>
+      el.classList.remove("dragging", "drop-target"));
+  }
+
+  $("board").addEventListener("dragstart", (e) => {
+    const card = e.target.closest(".card");
+    if (!card) return;
+    dragId = card.dataset.id;
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", dragId); // required by some browsers
+    card.classList.add("dragging");
+  });
+
+  $("board").addEventListener("dragend", () => {
+    dragId = null;
+    clearDropState();
+  });
+
+  $("board").addEventListener("dragover", (e) => {
+    const column = e.target.closest(".column");
+    if (!column || !dragId) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    document.querySelectorAll(".drop-target").forEach((el) => {
+      if (el !== column) el.classList.remove("drop-target");
+    });
+    column.classList.add("drop-target");
+
+    const body = column.querySelector(".column-body");
+    const cards = [...body.querySelectorAll(".card:not(.dragging)")];
+    const before = cards.find((c) => {
+      const r = c.getBoundingClientRect();
+      return e.clientY < r.top + r.height / 2;
+    }) || null;
+    if (dropIndicator.parentElement !== body || dropIndicator.nextElementSibling !== before) {
+      body.insertBefore(dropIndicator, before);
+    }
+  });
+
+  $("board").addEventListener("dragleave", (e) => {
+    const column = e.target.closest(".column");
+    if (column && !column.contains(e.relatedTarget)) {
+      column.classList.remove("drop-target");
+      if (column.contains(dropIndicator)) dropIndicator.remove();
+    }
+  });
+
+  $("board").addEventListener("drop", (e) => {
+    const column = e.target.closest(".column");
+    if (!column || !dragId) return;
+    e.preventDefault();
+    const id = dragId;
+    dragId = null;
+    let next = dropIndicator.parentElement ? dropIndicator.nextElementSibling : null;
+    if (next && next.classList.contains("dragging")) next = next.nextElementSibling;
+    const beforeId = next && next.classList.contains("card") ? next.dataset.id : null;
+    clearDropState();
+    if (!moveTaskTo(id, column.dataset.status, beforeId)) render();
+  });
+
+  // ---------- Board interactions ----------
+  $("board").addEventListener("click", (e) => {
+    const moveBtn = e.target.closest("[data-move-card]");
+    if (moveBtn) {
+      moveTaskByOffset(moveBtn.closest(".card").dataset.id, Number(moveBtn.dataset.moveCard));
+      return;
+    }
+    const addBtn = e.target.closest("[data-add-status]");
+    if (addBtn) {
+      openTaskDialog(null, addBtn.dataset.addStatus);
+      return;
+    }
+    const card = e.target.closest(".card");
+    if (card) openTaskDialog(card.dataset.id, null);
+  });
+
+  // Keyboard on a card's title button: Enter/Space opens (native button), Alt+arrows move.
+  $("board").addEventListener("keydown", (e) => {
+    if (!e.altKey || !e.target.matches(".card-open")) return;
+    const card = e.target.closest(".card");
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      e.preventDefault();
+      moveTaskByOffset(card.dataset.id, e.key === "ArrowLeft" ? -1 : 1);
+    } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      e.preventDefault();
+      reorderByOffset(card, e.key === "ArrowUp" ? -1 : 1);
+    }
+  });
+
+  const newTaskInFirstColumn = () => openTaskDialog(null, board.statuses[0].id);
+  $("btn-add-task").addEventListener("click", newTaskInFirstColumn);
+
+  // ---------- Popover menus (disclosure: a button that shows a panel) ----------
+  // Used by the burger menu and the project switcher. Only one is open at a time.
+  const popovers = [];
+
+  function popover(toggleId, panelId, onOpen) {
+    const toggle = $(toggleId);
+    const panel = $(panelId);
+    const root = toggle.closest(".menu");
+    const p = {
+      toggle,
+      root,
+      isOpen: () => !panel.classList.contains("hidden"),
+      set(open) {
+        if (open) {
+          popovers.forEach((other) => other !== p && other.set(false));
+          if (onOpen) onOpen();
+        }
+        panel.classList.toggle("hidden", !open);
+        toggle.setAttribute("aria-expanded", String(open));
+      },
+    };
+    toggle.addEventListener("click", (e) => {
+      e.stopPropagation();
+      p.set(!p.isOpen());
+    });
+    // Close when tabbing out, and after choosing an item (the item's own handler still runs).
+    root.addEventListener("focusout", (e) => {
+      if (p.isOpen() && e.relatedTarget && !root.contains(e.relatedTarget)) p.set(false);
+    });
+    panel.addEventListener("click", (e) => {
+      if (e.target.closest("button")) p.set(false);
+    });
+    popovers.push(p);
+    return p;
+  }
+
+  popover("btn-menu", "menu-panel");
+  popover("btn-projects", "projects-panel", renderProjectsList);
+
+  // Close when clicking anywhere outside an open popover.
+  document.addEventListener("click", (e) => {
+    popovers.forEach((p) => p.isOpen() && !p.root.contains(e.target) && p.set(false));
+  });
+
+  $("btn-shortcuts").addEventListener("click", () => $("shortcuts-dialog").showModal());
+
+  // ---------- Keyboard shortcuts ----------
+  // "+" new task in the first column, "/" search, "?" help (shortcut list), F2 rename project, Ctrl+Z undo.
+  // All are ignored while typing in a field or while a dialog is open.
+  document.addEventListener("keydown", (e) => {
+    const open = popovers.find((p) => p.isOpen());
+    if (e.key === "Escape" && open) {
+      open.set(false);
+      open.toggle.focus();
+      return;
+    }
+    if (document.querySelector("dialog[open]") || isTyping(document.activeElement)) return;
+
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "z") {
+      if (undoAction) {
+        e.preventDefault();
+        runUndo();
+      }
+      return;
+    }
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+    if (e.key === "+") {
+      e.preventDefault();
+      newTaskInFirstColumn();
+    } else if (e.key === "/") {
+      e.preventDefault();
+      $("search").focus();
+      $("search").select();
+    } else if (e.key === "?") {
+      e.preventDefault();
+      $("shortcuts-dialog").showModal();
+    } else if (e.key === "F2") {
+      e.preventDefault();
+      startRename();
+    }
+  });
+
+  // ---------- Init ----------
+  // Moves backgrounds saved by earlier builds (outside the workspace) into the workspace.
+  async function adoptLegacyBackgrounds() {
+    const legacy = await S.takeLegacyBackgrounds();
+    if (!legacy) return;
+    let changed = false;
+    if (legacy.all && !workspace.background) {
+      workspace.background = legacy.all;
+      changed = true;
+    }
+    for (const p of workspace.projects) {
+      if (legacy.projects[p.id] && !p.background) {
+        p.background = legacy.projects[p.id];
+        changed = true;
+      }
+    }
+    if (!changed || commit()) await legacy.finish();
+  }
+
+  // Images kept for backgrounds that no longer exist are dropped at startup rather than when a background
+  // or project is removed, so Undo brings the image back too.
+  function pruneKeptImages() {
+    const names = [workspace.background, ...workspace.projects.map((p) => p.background)]
+      .filter((bg) => bg && !M.isHttpUrl(bg.image))
+      .map((bg) => bg.image);
+    return S.pruneImages(names);
+  }
+
+  function init() {
+    const priorityOptions = PRIORITIES.map((p) => `<option value="${p}">${p}</option>`).join("");
+    $("priority-filter").insertAdjacentHTML("beforeend", priorityOptions);
+    $("f-priority").innerHTML = priorityOptions;
+    $("app-version").textContent = `v${M.APP_VERSION}`;
+
+    const loaded = S.loadWorkspace();
+    workspace = loaded.workspace;
+    setActiveProject(workspace.activeProjectId);
+    saveLocked = loaded.saveLocked;
+    workerFilter = S.getWorkerFilter();
+    // A board saved by an older version was turned into the first project: save it in the new format now.
+    if (loaded.migrated && !saveLocked) {
+      if (S.saveWorkspace(workspace).ok) S.removeLegacyBoard();
+      else removeLegacyAfterSave = true;
+    }
+
+    const theme = S.getStoredTheme();
+    applyTheme(theme);
+    $("theme-select").value = theme;
+    $("theme-select").addEventListener("change", () => setTheme($("theme-select").value));
+
+    render();
+    new ResizeObserver(updateBoardHint).observe($("board"));
+
+    // Skipped when the saved projects could not be read, so nothing they refer to is touched.
+    if (!saveLocked && !loaded.unreadableKeptAs) adoptLegacyBackgrounds().then(pruneKeptImages);
+
+    if (saveLocked) {
+      toast("The saved projects could not be read or backed up, so changes will not be saved.", "error");
+    } else if (loaded.unreadableKeptAs) {
+      toast(`The saved projects could not be read. A copy was kept under "${loaded.unreadableKeptAs}".`, "error");
+    }
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>

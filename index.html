@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kanban Board</title>
+  <script>
+    // Applies a stored Light/Dark choice before first paint. "System" (or any other value) follows the OS.
+    (function () {
+      try {
+        var t = localStorage.getItem("kanban-board.theme");
+        if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+      } catch (e) { /* storage blocked: follow the OS */ }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <!-- Loaded without blocking first paint; the system font stack is used until Inter arrives. -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" media="print" onload="this.media='all'">
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap"></noscript>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+</head>
+<body>
+
+  <!-- Shared icon sprite. Use with <svg class="icon"><use href="#i-name"/></svg>. -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+    <defs>
+      <symbol id="i-kanban" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M9 7v10M15 7v6"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></symbol>
+      <symbol id="i-flag" viewBox="0 0 24 24"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></symbol>
+      <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V3M7 8l5-5 5 5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.9-3.9M4 4v4h4M4 13a8 8 0 0 0 14.9 3.9M20 20v-4h-4"/></symbol>
+      <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17h.01"/></symbol>
+      <symbol id="i-columns" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18"/></symbol>
+      <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></symbol>
+      <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+      <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a7 7 0 0 1 7-7h2a7 7 0 0 1 7 7v1"/></symbol>
+      <symbol id="i-paperclip" viewBox="0 0 24 24"><path d="M21.44 11.05 12.25 20.2a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></symbol>
+      <symbol id="i-message" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6"/></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+      <symbol id="i-up" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></symbol>
+      <symbol id="i-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+      <symbol id="i-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+      <symbol id="i-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+      <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+      <symbol id="i-folder-plus" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM12 10v6M9 13h6"/></symbol>
+      <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20v-.5A5.5 5.5 0 0 1 8 14h2a5.5 5.5 0 0 1 5.5 5.5v.5M16 4.5a3.5 3.5 0 0 1 0 7M18 14a5 5 0 0 1 3.5 5v1"/></symbol>
+      <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16zM14 6l4 4"/></symbol>
+      <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></symbol>
+    </defs>
+  </svg>
+
+  <header class="topbar">
+    <div class="project-bar">
+      <svg class="icon logo" aria-hidden="true"><use href="#i-kanban"/></svg>
+      <!-- The project name: click to rename in place. -->
+      <h1 class="project-title">
+        <button type="button" id="project-name" class="project-name" title="Rename project">
+          <span id="project-name-text">Kanban Board</span><svg class="icon icon-sm rename-hint" aria-hidden="true"><use href="#i-pencil"/></svg>
+        </button>
+      </h1>
+      <input type="text" id="project-name-input" class="project-name-input hidden" maxlength="80" aria-label="Project name" autocomplete="off">
+      <div class="menu" id="projects-menu">
+        <button type="button" id="btn-projects" class="menu-toggle" aria-expanded="false" aria-controls="projects-panel" title="Open another project">
+          <svg class="icon" aria-hidden="true"><use href="#i-folder"/></svg><span class="btn-label">Projects</span><svg class="icon icon-sm" aria-hidden="true"><use href="#i-down"/></svg>
+        </button>
+        <div id="projects-panel" class="menu-panel menu-panel-left hidden">
+          <p class="menu-heading" id="projects-heading">Open project</p>
+          <div id="projects-list" class="projects-list" role="group" aria-labelledby="projects-heading"></div>
+        </div>
+      </div>
+      <button type="button" id="btn-new-project"><svg class="icon" aria-hidden="true"><use href="#i-folder-plus"/></svg><span class="btn-label">New project</span></button>
+    </div>
+    <div class="toolbar">
+      <span class="input-icon search-wrap">
+        <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+        <input type="search" id="search" placeholder="Search tasks…" aria-label="Search tasks" title="Search (shortcut: /)">
+      </span>
+      <span class="input-icon">
+        <svg class="icon" aria-hidden="true"><use href="#i-user"/></svg>
+        <select id="worker-filter" aria-label="Show tasks assigned to" title="Show tasks assigned to a worker. New tasks are assigned to the selected worker."></select>
+      </span>
+      <span class="input-icon">
+        <svg class="icon" aria-hidden="true"><use href="#i-flag"/></svg>
+        <select id="priority-filter" aria-label="Filter by priority">
+          <option value="">All priorities</option>
+        </select>
+      </span>
+      <button type="button" id="btn-clear-filters" class="hidden"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>Clear filters</button>
+      <button type="button" id="btn-add-task" class="primary" title="New task (shortcut: +)"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>New task</button>
+      <div class="menu">
+        <button type="button" id="btn-menu" class="menu-toggle menu-burger" aria-label="Menu" aria-expanded="false" aria-controls="menu-panel">
+          <svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true">
+            <path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
+          </svg>
+        </button>
+        <!-- A disclosure panel (button + region), not an ARIA menu: Tab moves through its controls. -->
+        <div id="menu-panel" class="menu-panel hidden">
+          <button type="button" id="btn-manage-projects"><svg class="icon" aria-hidden="true"><use href="#i-folder"/></svg>Manage projects</button>
+          <button type="button" id="btn-workers"><svg class="icon" aria-hidden="true"><use href="#i-users"/></svg>Manage workers</button>
+          <button type="button" id="btn-statuses"><svg class="icon" aria-hidden="true"><use href="#i-columns"/></svg>Manage statuses</button>
+          <button type="button" id="btn-import"><svg class="icon" aria-hidden="true"><use href="#i-upload"/></svg>Import JSON</button>
+          <button type="button" id="btn-export"><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>Export JSON</button>
+          <button type="button" id="btn-background"><svg class="icon" aria-hidden="true"><use href="#i-image"/></svg>Board background…</button>
+          <button type="button" id="btn-shortcuts" aria-keyshortcuts="?"><svg class="icon" aria-hidden="true"><use href="#i-help"/></svg>Help<kbd class="menu-kbd" aria-hidden="true">?</kbd></button>
+          <label class="menu-select">Theme
+            <select id="theme-select">
+              <option value="system">System</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </label>
+          <p id="app-version" class="menu-version">v1.0.0</p>
+        </div>
+      </div>
+      <input type="file" id="file-input" accept="application/json,.json" hidden>
+    </div>
+  </header>
+
+  <main>
+    <div id="welcome" class="welcome" role="region" aria-label="Getting started" hidden>
+      <svg class="icon" aria-hidden="true"><use href="#i-upload"/></svg>
+      <p>Received a board from a colleague? Import its JSON file, then pick your name in the worker filter.</p>
+      <button type="button" id="btn-welcome-import" class="primary">Import JSON…</button>
+    </div>
+    <div class="board-wrap" id="board-wrap">
+      <div id="board-bg-layer" class="board-bg bg-canvas" aria-hidden="true"></div>
+      <div id="board" class="board"></div>
+      <button type="button" id="board-more-left" class="board-more board-more-left" aria-label="Scroll to previous columns" title="Previous columns">
+        <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-left"/></svg>
+      </button>
+      <button type="button" id="board-more" class="board-more board-more-right" aria-label="Scroll to more columns" title="More columns">
+        <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-right"/></svg>
+      </button>
+    </div>
+    <p id="card-help" class="sr-only">Alt plus Left or Right arrow moves the task to another column. Alt plus Up or Down arrow changes its order.</p>
+  </main>
+
+  <!-- Task editor -->
+  <dialog id="task-dialog" class="dialog wide" aria-labelledby="task-dialog-title">
+    <form id="task-form" class="dialog-form" novalidate>
+      <div class="dialog-head">
+        <h2 id="task-dialog-title">New task</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Close"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+      </div>
+
+      <!-- Two panes on wide screens: the task's fields, and its attachments and comments beside them. -->
+      <div class="dialog-body task-body">
+       <div class="task-main">
+        <div class="field">
+          <label><span>Title <span class="req" aria-hidden="true">*</span></span>
+            <input type="text" id="f-title" maxlength="200" autocomplete="off" required aria-describedby="f-title-error">
+          </label>
+          <p id="f-title-error" class="field-error"></p>
+        </div>
+
+        <label class="grow">Description
+          <textarea id="f-description" rows="6"></textarea>
+        </label>
+
+        <div class="grid-2">
+          <div class="field combo-field">
+            <label for="f-assigned">Assigned to</label>
+            <!-- Typable dropdown (ARIA combobox): pick a saved worker or type a new name (saved to the workers list on Save). -->
+            <div class="combo">
+              <input type="text" id="f-assigned" role="combobox" maxlength="100" autocomplete="off"
+                     aria-autocomplete="list" aria-expanded="false" aria-controls="f-assigned-list"
+                     placeholder="Pick or type a name" aria-describedby="f-assigned-hint">
+              <button type="button" id="f-assigned-toggle" class="combo-toggle" tabindex="-1" aria-label="Show all workers">
+                <svg class="icon" aria-hidden="true"><use href="#i-down"/></svg>
+              </button>
+              <ul id="f-assigned-list" class="combo-list" role="listbox" aria-label="Workers" hidden></ul>
+            </div>
+            <span id="f-assigned-hint" class="sr-only">Pick a saved worker or type a new name; new names are added to your workers.</span>
+          </div>
+          <label>Due date
+            <input type="date" id="f-due">
+          </label>
+          <label>Priority
+            <select id="f-priority"></select>
+          </label>
+          <label>Status
+            <select id="f-status"></select>
+          </label>
+        </div>
+
+       </div>
+
+       <div class="task-side">
+        <section class="side-section side-attachments" aria-labelledby="f-attachments-title">
+          <h3 id="f-attachments-title" class="side-title"><svg class="icon" aria-hidden="true"><use href="#i-paperclip"/></svg>Attachment URLs</h3>
+          <div id="f-attachments" class="list side-list"></div>
+          <div class="inline-add">
+            <input type="text" id="f-attachment-input" placeholder="https://example.com/file" autocomplete="off" aria-label="Attachment URL" aria-describedby="f-attachment-error">
+            <button type="button" id="btn-add-attachment"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Add URL</button>
+          </div>
+          <p id="f-attachment-error" class="field-error"></p>
+        </section>
+
+        <section class="side-section side-comments" aria-labelledby="f-comments-title">
+          <h3 id="f-comments-title" class="side-title"><svg class="icon" aria-hidden="true"><use href="#i-message"/></svg>Comments</h3>
+          <div id="f-comments" class="list side-list"></div>
+          <div class="comment-add">
+            <textarea id="f-comment-input" rows="2" placeholder="Write a comment…" aria-label="New comment"></textarea>
+            <button type="button" id="btn-add-comment"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Add comment</button>
+          </div>
+        </section>
+       </div>
+      </div>
+
+      <div class="dialog-foot">
+        <button type="button" id="btn-delete-task" class="danger"><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg>Delete</button>
+        <span class="spacer"></span>
+        <button type="button" data-close>Cancel</button>
+        <button type="submit" class="primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Status manager -->
+  <dialog id="status-dialog" class="dialog" aria-labelledby="status-dialog-title">
+    <form id="status-form" class="dialog-form" novalidate>
+      <div class="dialog-head">
+        <h2 id="status-dialog-title">Manage statuses</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Close"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+      </div>
+
+      <div class="dialog-body">
+        <p class="hint">Each status becomes a board column. Mark a status as “Completed” so its tasks are not flagged as overdue. Deleting a status moves its tasks to the first status.</p>
+        <div id="status-list" class="status-list"></div>
+        <p id="status-error" class="field-error" role="alert"></p>
+        <div>
+          <button type="button" id="btn-add-status"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Add status</button>
+        </div>
+      </div>
+
+      <div class="dialog-foot">
+        <span class="spacer"></span>
+        <button type="button" data-close>Cancel</button>
+        <button type="submit" class="primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Import choice -->
+  <dialog id="import-dialog" class="dialog small" aria-labelledby="import-dialog-title">
+    <div class="dialog-form">
+      <div class="dialog-head">
+        <h2 id="import-dialog-title">Import tasks</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Close"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+      </div>
+      <div class="dialog-body">
+        <p id="import-summary"></p>
+        <p id="import-version" class="notice-warn" role="note" hidden><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><span></span></p>
+        <fieldset class="list-field">
+          <legend>Projects in the file</legend>
+          <div id="import-projects" class="check-list"></div>
+        </fieldset>
+        <p class="hint" id="import-help-update" hidden><strong>Update</strong> overwrites your copy of each checked project that is already here with the one in the file, and adds the others. Changes made in your copy since are lost, so agree on them first.</p>
+        <p class="hint"><strong id="import-help-add">Add selected</strong> keeps your projects and adds the checked ones as new projects; a name that is already used gets a number.
+          <strong>Replace all</strong> removes your current projects and keeps only the checked ones. You can undo any of these right after.</p>
+      </div>
+      <div class="dialog-foot">
+        <span class="spacer"></span>
+        <button type="button" data-close>Cancel</button>
+        <button type="button" id="btn-import-replace" class="danger"><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg>Replace all</button>
+        <button type="button" id="btn-import-add" class="primary"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Add selected</button>
+        <button type="button" id="btn-import-update" class="primary" hidden><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>Update</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Board background -->
+  <dialog id="bg-dialog" class="dialog" aria-labelledby="bg-dialog-title">
+    <div class="dialog-form">
+      <div class="dialog-head">
+        <h2 id="bg-dialog-title">Board background</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Close"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+      </div>
+
+      <div class="dialog-body">
+        <div class="bg-source">
+          <label>Image address or file name
+            <input type="text" id="bg-url" placeholder="https://example.com/photo.jpg or img/photo.jpg" autocomplete="off" spellcheck="false">
+          </label>
+          <div class="bg-source-row">
+            <button type="button" id="bg-add-url"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Use address</button>
+            <button type="button" id="bg-choose-file"><svg class="icon" aria-hidden="true"><use href="#i-upload"/></svg>Choose file…</button>
+            <input type="file" id="bg-file" accept="image/*" hidden>
+          </div>
+          <p class="hint">A file name is looked up next to index.html. A web image's host can see your IP address when the image loads.</p>
+          <p id="bg-error" class="bad-url" role="alert"></p>
+          <p id="bg-share-note" class="hint" hidden></p>
+        </div>
+
+        <div id="bg-preview" class="bg-preview bg-canvas" role="img" aria-label="Background preview"></div>
+
+        <div class="grid-2">
+          <label>Fit
+            <select id="bg-fit">
+              <option value="cover">Cover</option>
+              <option value="contain">Contain</option>
+              <option value="tile">Tile</option>
+              <option value="original">Original size</option>
+            </select>
+          </label>
+          <label>Position
+            <select id="bg-position">
+              <option value="center">Center</option>
+              <option value="top">Top</option>
+              <option value="bottom">Bottom</option>
+            </select>
+          </label>
+        </div>
+
+        <label>Dim <span id="bg-dim-value" class="hint">30%</span>
+          <input type="range" id="bg-dim" min="0" max="70" step="5" value="30">
+        </label>
+
+        <label class="check-row">
+          <input type="checkbox" id="bg-all">
+          <span class="check-text">Use for every project
+            <span id="bg-scope-hint" class="hint">A project with its own background keeps it.</span></span>
+        </label>
+      </div>
+
+      <div class="dialog-foot">
+        <button type="button" id="bg-remove" class="danger"><svg class="icon" aria-hidden="true"><use href="#i-trash"/></svg>Remove</button>
+        <span class="spacer"></span>
+        <button type="button" id="bg-cancel" data-close>Cancel</button>
+        <button type="button" id="bg-save" class="primary">Save</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- New project -->
+  <dialog id="project-dialog" class="dialog small" aria-labelledby="project-dialog-title">
+    <form id="project-form" class="dialog-form" novalidate>
+      <div class="dialog-head">
+        <h2 id="project-dialog-title">New project</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Close"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+      </div>
+      <div class="dialog-body">
+        <div class="field">
+          <label><span>Name of the new project <span class="req" aria-hidden="true">*</span></span>
+            <input type="text" id="np-name" maxlength="80" autocomplete="off" required aria-describedby="np-name-error">
+          </label>
+          <p id="np-name-error" class="field-error"></p>
+        </div>
+        <label class="check-row">
+          <input type="checkbox" id="np-backup" checked>
+          <span>Save a backup of “<span id="np-current"></span>” as a JSON file first</span>
+        </label>
+        <p class="hint">Your current project also stays saved in this browser. Open it again from <strong>Projects</strong>.</p>
+      </div>
+      <div class="dialog-foot">
+        <span class="spacer"></span>
+        <button type="button" data-close>Cancel</button>
+        <button type="submit" class="primary"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Create project</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Manage projects -->
+  <dialog id="projects-dialog" class="dialog" aria-labelledby="projects-dialog-title">
+    <form id="projects-form" class="dialog-form" novalidate>
+      <div class="dialog-head">
+        <h2 id="projects-dialog-title">Manage projects</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Close"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+      </div>
+      <div class="dialog-body">
+        <p class="hint">Rename projects or delete them with all their tasks. Changes apply when you save, and you can undo right after.</p>
+        <div id="projects-rows" class="status-list"></div>
+        <p id="projects-error" class="field-error" role="alert"></p>
+      </div>
+      <div class="dialog-foot">
+        <span class="spacer"></span>
+        <button type="button" data-close>Cancel</button>
+        <button type="submit" class="primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Manage workers -->
+  <dialog id="workers-dialog" class="dialog" aria-labelledby="workers-dialog-title">
+    <form id="workers-form" class="dialog-form" novalidate>
+      <div class="dialog-head">
+        <h2 id="workers-dialog-title">Manage workers</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Close"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+      </div>
+      <div class="dialog-body">
+        <p class="hint">Workers are shared by all projects and listed in the “Assigned to” field. Renaming a worker updates their tasks in every project. Removing a worker keeps the name on existing tasks.</p>
+        <div id="workers-rows" class="status-list"></div>
+        <p id="workers-empty" class="empty">No workers yet. Add one here, or type a name in a task’s “Assigned to” field.</p>
+        <p id="workers-error" class="field-error" role="alert"></p>
+        <div>
+          <button type="button" id="btn-add-worker"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Add worker</button>
+        </div>
+      </div>
+      <div class="dialog-foot">
+        <span class="spacer"></span>
+        <button type="button" data-close>Cancel</button>
+        <button type="submit" class="primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Generic confirmation (discarding edits, deleting statuses or projects) -->
+  <dialog id="confirm-dialog" class="dialog small" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+    <form method="dialog" class="dialog-form">
+      <div class="dialog-head">
+        <h2 id="confirm-title">Are you sure?</h2>
+      </div>
+      <div class="dialog-body">
+        <p id="confirm-message"></p>
+      </div>
+      <div class="dialog-foot">
+        <span class="spacer"></span>
+        <button type="submit" value="cancel" id="confirm-cancel">Cancel</button>
+        <button type="submit" value="ok" id="confirm-ok" class="danger">OK</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Help: keyboard shortcuts -->
+  <dialog id="shortcuts-dialog" class="dialog small" aria-labelledby="shortcuts-title">
+    <div class="dialog-form">
+      <div class="dialog-head">
+        <h2 id="shortcuts-title">Help</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Close"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+      </div>
+      <div class="dialog-body">
+        <p class="hint">Keyboard shortcuts. The board ones work when you are not typing in a field.</p>
+        <section class="shortcut-group" aria-labelledby="sc-board">
+          <h3 id="sc-board">Board</h3>
+          <dl class="shortcuts">
+            <dt><kbd>+</kbd></dt><dd>New task</dd>
+            <dt><kbd>/</kbd></dt><dd>Search tasks</dd>
+            <dt><kbd>F2</kbd></dt><dd>Rename the project</dd>
+            <dt><kbd>Ctrl</kbd> + <kbd>Z</kbd></dt><dd>Undo the last delete or import</dd>
+            <dt><kbd>?</kbd></dt><dd>Show this help</dd>
+          </dl>
+        </section>
+        <section class="shortcut-group" aria-labelledby="sc-task">
+          <h3 id="sc-task">Focused task card</h3>
+          <dl class="shortcuts">
+            <dt><kbd>Enter</kbd></dt><dd>Open the task</dd>
+            <dt><kbd>Alt</kbd> + <kbd>←</kbd> <kbd>→</kbd></dt><dd>Move to the previous or next column</dd>
+            <dt><kbd>Alt</kbd> + <kbd>↑</kbd> <kbd>↓</kbd></dt><dd>Move up or down in the column</dd>
+          </dl>
+        </section>
+        <section class="shortcut-group" aria-labelledby="sc-dialogs">
+          <h3 id="sc-dialogs">Dialogs and menus</h3>
+          <dl class="shortcuts">
+            <dt><kbd>↓</kbd></dt><dd>Open the worker list in “Assigned to”</dd>
+            <dt><kbd>Enter</kbd></dt><dd>Pick a worker, or add a typed attachment URL</dd>
+            <dt><kbd>Esc</kbd></dt><dd>Close the list, dialog, or menu</dd>
+          </dl>
+        </section>
+      </div>
+    </div>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite">
+    <span id="toast-text"></span>
+    <button type="button" id="toast-action" class="toast-action hidden">Undo</button>
+  </div>
+
+  <script src="js/model.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

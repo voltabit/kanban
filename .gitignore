@@ -1,0 +1,16 @@
+# Board data exported from the app (menu → Export JSON). It holds real project data.
+kanban-*.json
+
+# Personal background images. The app stores backgrounds by name only, so the code doesn't need them.
+img/
+
+# Editor and OS files
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# In case npm tooling is added later
+node_modules/
