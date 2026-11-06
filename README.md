@@ -2,6 +2,8 @@
 
 A kanban board that runs from a single HTML file. There is no server and no install. Data stays in the browser, and you share it as a JSON file.
 
+If you simply want to use it, downloading [`public/index.html`](public/index.html) should suffice.
+
 ## Build
 
 ```
